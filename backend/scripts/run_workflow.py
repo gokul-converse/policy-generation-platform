@@ -1,40 +1,23 @@
 import asyncio
-import json
-
-from app.workflows.mock_policy_workflow import (
-    build_mock_policy_workflow,
-)
+from app.workflows.policy_workflow import run_policy_workflow
 
 
-async def main():
-    workflow = build_mock_policy_workflow()
+async def main() -> None:
+    print("AI Policy Generation — Graph Workflow")
+    print("Enter a policy description. Type 'exit' to quit.\n")
 
-    mock_request = {
-        "request_id": "REQ-001",
-        "user_input": "Create an employee leave policy.",
-        "selected_skills": [
-            {
-                "id": "leave_policy",
-                "instructions": (
-                    "Define leave eligibility and entitlements."
-                ),
-            },
-            {
-                "id": "policy_formatting",
-                "instructions": (
-                    "Organize the policy into clear sections."
-                ),
-            },
-        ],
-    }
+    description = input("Policy description: ").strip()
+    if description.lower() in {"exit", "quit"}:
+        return
 
-    events = await workflow.run(mock_request)
+    business_context = input("Business context (optional): ").strip()
 
-    outputs = events.get_outputs()
-
-    print("\n===== FINAL MASTER POLICY =====")
-    print(json.dumps(outputs, indent=2))
+    result = await run_policy_workflow(description, business_context)
+    print("\n" + "=" * 70)
+    print("GENERATED POLICY")
+    print("=" * 70)
+    print(result["policy"])
 
 
 if __name__ == "__main__":
-    asyncio.run(main())     
+    asyncio.run(main())
