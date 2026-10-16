@@ -11,3 +11,16 @@
  * Example:
  *   export { Button } from './ui/button';
  */
+
+// UI Components
+export { Button } from './ui/button';
+export { Card, CardHeader, CardBody, CardFooter } from './ui/card';
+export { Textarea } from './ui/textarea';
+export { Spinner, LoadingOverlay } from './ui/spinner';
+
+// Feature Components
+export { PolicyDescriptionForm } from './features/policy-description-form';
+export { PolicyDocument } from './features/policy-document';
+export { PolicyDocumentElement } from './features/policy-document-element';
+export { UIPreview } from './features/ui-preview';
+export { UIRenderer } from './features/ui-renderer';

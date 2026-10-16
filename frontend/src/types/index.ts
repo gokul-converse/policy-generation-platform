@@ -28,3 +28,8 @@ export interface PaginatedResponse<T> {
   page: number;
   pageSize: number;
 }
+
+// ---------------------------------------------------------------------------
+// Re-export domain types
+// ---------------------------------------------------------------------------
+export * from './policy';
