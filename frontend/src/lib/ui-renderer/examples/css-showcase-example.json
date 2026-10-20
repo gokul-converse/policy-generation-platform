@@ -1,0 +1,708 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "title": "CSS Capabilities Showcase",
+    "description": "Demonstrates all CSS properties and layout capabilities"
+  },
+  "components": [
+    {
+      "type": "container",
+      "css": {
+        "padding": "2rem",
+        "backgroundColor": "#f9fafb",
+        "minHeight": "100vh"
+      },
+      "children": [
+        {
+          "type": "heading",
+          "props": {
+            "content": "CSS Capabilities Showcase",
+            "level": 1
+          },
+          "css": {
+            "fontSize": "2.5rem",
+            "fontWeight": "800",
+            "textAlign": "center",
+            "marginBottom": "3rem",
+            "color": "#1a202c",
+            "textShadow": "0 2px 4px rgba(0,0,0,0.1)"
+          }
+        },
+        {
+          "type": "stack",
+          "props": {
+            "spacing": 8
+          },
+          "children": [
+            {
+              "type": "card",
+              "props": {
+                "title": "Flexbox Layout",
+                "variant": "elevated"
+              },
+              "css": {
+                "backgroundColor": "#ffffff",
+                "borderRadius": "0.75rem",
+                "boxShadow": "0 4px 6px rgba(0,0,0,0.1)",
+                "padding": "2rem"
+              },
+              "children": [
+                {
+                  "type": "container",
+                  "css": {
+                    "display": "flex",
+                    "flexDirection": "row",
+                    "justifyContent": "space-between",
+                    "alignItems": "center",
+                    "gap": "1rem",
+                    "padding": "1rem",
+                    "backgroundColor": "#f3f4f6",
+                    "borderRadius": "0.5rem"
+                  },
+                  "children": [
+                    {
+                      "type": "box",
+                      "css": {
+                        "flex": "1",
+                        "padding": "1rem",
+                        "backgroundColor": "#3b82f6",
+                        "color": "#ffffff",
+                        "borderRadius": "0.5rem",
+                        "textAlign": "center",
+                        "fontWeight": "600"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Flex Item 1"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "flex": "2",
+                        "padding": "1rem",
+                        "backgroundColor": "#10b981",
+                        "color": "#ffffff",
+                        "borderRadius": "0.5rem",
+                        "textAlign": "center",
+                        "fontWeight": "600"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Flex Item 2 (flex: 2)"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "flex": "1",
+                        "padding": "1rem",
+                        "backgroundColor": "#f59e0b",
+                        "color": "#ffffff",
+                        "borderRadius": "0.5rem",
+                        "textAlign": "center",
+                        "fontWeight": "600"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Flex Item 3"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Grid Layout",
+                "variant": "elevated"
+              },
+              "css": {
+                "backgroundColor": "#ffffff",
+                "borderRadius": "0.75rem",
+                "boxShadow": "0 4px 6px rgba(0,0,0,0.1)",
+                "padding": "2rem"
+              },
+              "children": [
+                {
+                  "type": "container",
+                  "css": {
+                    "display": "grid",
+                    "gridTemplateColumns": "repeat(4, 1fr)",
+                    "gap": "1rem"
+                  },
+                  "children": [
+                    {
+                      "type": "box",
+                      "css": {
+                        "gridColumn": "1 / 3",
+                        "padding": "2rem",
+                        "backgroundColor": "#ec4899",
+                        "color": "#ffffff",
+                        "borderRadius": "0.5rem",
+                        "textAlign": "center",
+                        "fontWeight": "600"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Span 2 columns"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "padding": "2rem",
+                        "backgroundColor": "#8b5cf6",
+                        "color": "#ffffff",
+                        "borderRadius": "0.5rem",
+                        "textAlign": "center",
+                        "fontWeight": "600"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Col 3"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "padding": "2rem",
+                        "backgroundColor": "#06b6d4",
+                        "color": "#ffffff",
+                        "borderRadius": "0.5rem",
+                        "textAlign": "center",
+                        "fontWeight": "600"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Col 4"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Positioning & Z-Index",
+                "variant": "elevated"
+              },
+              "css": {
+                "backgroundColor": "#ffffff",
+                "borderRadius": "0.75rem",
+                "boxShadow": "0 4px 6px rgba(0,0,0,0.1)",
+                "padding": "2rem"
+              },
+              "children": [
+                {
+                  "type": "container",
+                  "css": {
+                    "position": "relative",
+                    "height": "200px",
+                    "backgroundColor": "#f3f4f6",
+                    "borderRadius": "0.5rem"
+                  },
+                  "children": [
+                    {
+                      "type": "box",
+                      "css": {
+                        "position": "absolute",
+                        "top": "20px",
+                        "left": "20px",
+                        "padding": "1rem",
+                        "backgroundColor": "#ef4444",
+                        "color": "#ffffff",
+                        "borderRadius": "0.5rem",
+                        "zIndex": "10",
+                        "boxShadow": "0 4px 6px rgba(0,0,0,0.2)"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Z-Index: 10"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "position": "absolute",
+                        "top": "40px",
+                        "left": "40px",
+                        "padding": "1rem",
+                        "backgroundColor": "#3b82f6",
+                        "color": "#ffffff",
+                        "borderRadius": "0.5rem",
+                        "zIndex": "20",
+                        "boxShadow": "0 4px 6px rgba(0,0,0,0.2)"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Z-Index: 20 (on top)"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Spacing Shortcuts",
+                "variant": "elevated"
+              },
+              "css": {
+                "backgroundColor": "#ffffff",
+                "borderRadius": "0.75rem",
+                "boxShadow": "0 4px 6px rgba(0,0,0,0.1)",
+                "padding": "2rem"
+              },
+              "children": [
+                {
+                  "type": "container",
+                  "css": {
+                    "display": "flex",
+                    "flexDirection": "column",
+                    "gap": "1rem"
+                  },
+                  "children": [
+                    {
+                      "type": "box",
+                      "css": {
+                        "paddingX": "2rem",
+                        "paddingY": "1rem",
+                        "backgroundColor": "#dbeafe",
+                        "borderRadius": "0.5rem"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "paddingX: 2rem, paddingY: 1rem"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "marginX": "auto",
+                        "paddingX": "3rem",
+                        "paddingY": "1.5rem",
+                        "backgroundColor": "#fef3c7",
+                        "borderRadius": "0.5rem",
+                        "maxWidth": "80%"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Centered with marginX: auto"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Typography & Colors",
+                "variant": "elevated"
+              },
+              "css": {
+                "backgroundColor": "#ffffff",
+                "borderRadius": "0.75rem",
+                "boxShadow": "0 4px 6px rgba(0,0,0,0.1)",
+                "padding": "2rem"
+              },
+              "children": [
+                {
+                  "type": "stack",
+                  "props": {
+                    "spacing": 3
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Extra Large Bold"
+                      },
+                      "css": {
+                        "fontSize": "2rem",
+                        "fontWeight": "800",
+                        "color": "#1f2937"
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Large Semibold with Letter Spacing"
+                      },
+                      "css": {
+                        "fontSize": "1.5rem",
+                        "fontWeight": "600",
+                        "letterSpacing": "0.05em",
+                        "color": "#3b82f6"
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Normal Text with Underline"
+                      },
+                      "css": {
+                        "fontSize": "1rem",
+                        "textDecoration": "underline",
+                        "color": "#6b7280"
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "UPPERCASE TRANSFORMED TEXT"
+                      },
+                      "css": {
+                        "fontSize": "0.875rem",
+                        "fontWeight": "700",
+                        "textTransform": "uppercase",
+                        "letterSpacing": "0.1em",
+                        "color": "#ef4444"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Borders & Effects",
+                "variant": "elevated"
+              },
+              "css": {
+                "backgroundColor": "#ffffff",
+                "borderRadius": "0.75rem",
+                "boxShadow": "0 4px 6px rgba(0,0,0,0.1)",
+                "padding": "2rem"
+              },
+              "children": [
+                {
+                  "type": "container",
+                  "css": {
+                    "display": "grid",
+                    "gridTemplateColumns": "repeat(3, 1fr)",
+                    "gap": "1.5rem"
+                  },
+                  "children": [
+                    {
+                      "type": "box",
+                      "css": {
+                        "padding": "1.5rem",
+                        "border": "2px solid #3b82f6",
+                        "borderRadius": "0.5rem",
+                        "textAlign": "center"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Solid Border"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "padding": "1.5rem",
+                        "border": "3px dashed #10b981",
+                        "borderRadius": "1rem",
+                        "textAlign": "center"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Dashed Border"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "padding": "1.5rem",
+                        "backgroundColor": "#ffffff",
+                        "borderRadius": "0.5rem",
+                        "boxShadow": "0 10px 15px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.05)",
+                        "textAlign": "center"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Multiple Shadows"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Transform & Transitions",
+                "variant": "elevated"
+              },
+              "css": {
+                "backgroundColor": "#ffffff",
+                "borderRadius": "0.75rem",
+                "boxShadow": "0 4px 6px rgba(0,0,0,0.1)",
+                "padding": "2rem"
+              },
+              "children": [
+                {
+                  "type": "container",
+                  "css": {
+                    "display": "flex",
+                    "gap": "2rem",
+                    "justifyContent": "center"
+                  },
+                  "children": [
+                    {
+                      "type": "box",
+                      "css": {
+                        "padding": "1.5rem",
+                        "backgroundColor": "#3b82f6",
+                        "color": "#ffffff",
+                        "borderRadius": "0.5rem",
+                        "transform": "rotate(-5deg)",
+                        "boxShadow": "0 4px 6px rgba(59, 130, 246, 0.5)"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Rotated -5°"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "padding": "1.5rem",
+                        "backgroundColor": "#10b981",
+                        "color": "#ffffff",
+                        "borderRadius": "0.5rem",
+                        "transform": "scale(1.1)",
+                        "boxShadow": "0 4px 6px rgba(16, 185, 129, 0.5)"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Scaled 1.1x"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "padding": "1.5rem",
+                        "backgroundColor": "#f59e0b",
+                        "color": "#ffffff",
+                        "borderRadius": "0.5rem",
+                        "transition": "all 0.3s ease",
+                        "cursor": "pointer",
+                        "boxShadow": "0 4px 6px rgba(245, 158, 11, 0.5)"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Hover Effect"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Overflow & Scrolling",
+                "variant": "elevated"
+              },
+              "css": {
+                "backgroundColor": "#ffffff",
+                "borderRadius": "0.75rem",
+                "boxShadow": "0 4px 6px rgba(0,0,0,0.1)",
+                "padding": "2rem"
+              },
+              "children": [
+                {
+                  "type": "box",
+                  "css": {
+                    "height": "150px",
+                    "padding": "1rem",
+                    "backgroundColor": "#f3f4f6",
+                    "borderRadius": "0.5rem",
+                    "overflow": "auto",
+                    "border": "2px solid #e5e7eb"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "This is a scrollable container with overflow: auto. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Interactive Cursors",
+                "variant": "elevated"
+              },
+              "css": {
+                "backgroundColor": "#ffffff",
+                "borderRadius": "0.75rem",
+                "boxShadow": "0 4px 6px rgba(0,0,0,0.1)",
+                "padding": "2rem"
+              },
+              "children": [
+                {
+                  "type": "container",
+                  "css": {
+                    "display": "grid",
+                    "gridTemplateColumns": "repeat(4, 1fr)",
+                    "gap": "1rem"
+                  },
+                  "children": [
+                    {
+                      "type": "box",
+                      "css": {
+                        "padding": "1rem",
+                        "backgroundColor": "#dbeafe",
+                        "borderRadius": "0.5rem",
+                        "textAlign": "center",
+                        "cursor": "pointer"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Pointer"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "padding": "1rem",
+                        "backgroundColor": "#fef3c7",
+                        "borderRadius": "0.5rem",
+                        "textAlign": "center",
+                        "cursor": "move"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Move"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "padding": "1rem",
+                        "backgroundColor": "#fecaca",
+                        "borderRadius": "0.5rem",
+                        "textAlign": "center",
+                        "cursor": "not-allowed",
+                        "opacity": "0.6"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Not Allowed"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "box",
+                      "css": {
+                        "padding": "1rem",
+                        "backgroundColor": "#d1fae5",
+                        "borderRadius": "0.5rem",
+                        "textAlign": "center",
+                        "cursor": "text"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Text"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,370 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "title": "Interactive Components Example",
+    "description": "Demonstrates accordions, tabs, and other interactive elements"
+  },
+  "components": [
+    {
+      "type": "container",
+      "props": {
+        "maxWidth": "lg",
+        "centered": true
+      },
+      "children": [
+        {
+          "type": "stack",
+          "props": {
+            "direction": "vertical",
+            "gap": 6
+          },
+          "children": [
+            {
+              "type": "heading",
+              "props": {
+                "content": "Interactive Components Showcase",
+                "level": 1
+              }
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Accordion Example"
+              },
+              "children": [
+                {
+                  "type": "accordion",
+                  "props": {
+                    "allowMultiple": true,
+                    "defaultOpen": ["item1"],
+                    "items": [
+                      {
+                        "id": "item1",
+                        "title": "What is your return policy?",
+                        "content": {
+                          "type": "text",
+                          "props": {
+                            "content": "We offer a 30-day money-back guarantee on all purchases. Simply contact our support team to initiate a return."
+                          }
+                        }
+                      },
+                      {
+                        "id": "item2",
+                        "title": "How long does shipping take?",
+                        "content": {
+                          "type": "text",
+                          "props": {
+                            "content": "Standard shipping typically takes 5-7 business days. Express shipping options are available for 2-3 day delivery."
+                          }
+                        }
+                      },
+                      {
+                        "id": "item3",
+                        "title": "Do you ship internationally?",
+                        "content": {
+                          "type": "stack",
+                          "props": {
+                            "direction": "vertical",
+                            "gap": 2
+                          },
+                          "children": [
+                            {
+                              "type": "text",
+                              "props": {
+                                "content": "Yes! We ship to over 100 countries worldwide."
+                              }
+                            },
+                            {
+                              "type": "alert",
+                              "props": {
+                                "variant": "info",
+                                "message": "International shipping rates and times vary by destination."
+                              }
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Tabs Example"
+              },
+              "children": [
+                {
+                  "type": "tabs",
+                  "props": {
+                    "variant": "line",
+                    "defaultTab": "overview",
+                    "items": [
+                      {
+                        "id": "overview",
+                        "label": "Overview",
+                        "content": {
+                          "type": "stack",
+                          "props": {
+                            "direction": "vertical",
+                            "gap": 3
+                          },
+                          "children": [
+                            {
+                              "type": "text",
+                              "props": {
+                                "content": "Welcome to the overview section. Here you'll find general information about our product.",
+                                "size": "md"
+                              }
+                            },
+                            {
+                              "type": "metrics",
+                              "props": {
+                                "columns": 3,
+                                "items": [
+                                  {
+                                    "label": "Features",
+                                    "value": "50+"
+                                  },
+                                  {
+                                    "label": "Users",
+                                    "value": "10K+"
+                                  },
+                                  {
+                                    "label": "Rating",
+                                    "value": "4.8"
+                                  }
+                                ]
+                              }
+                            }
+                          ]
+                        }
+                      },
+                      {
+                        "id": "features",
+                        "label": "Features",
+                        "content": {
+                          "type": "list",
+                          "props": {
+                            "variant": "bullet",
+                            "items": [
+                              {
+                                "id": "f1",
+                                "content": "Advanced analytics and reporting"
+                              },
+                              {
+                                "id": "f2",
+                                "content": "Real-time collaboration tools"
+                              },
+                              {
+                                "id": "f3",
+                                "content": "Customizable dashboards"
+                              },
+                              {
+                                "id": "f4",
+                                "content": "Mobile app support"
+                              },
+                              {
+                                "id": "f5",
+                                "content": "Enterprise-grade security"
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "id": "pricing",
+                        "label": "Pricing",
+                        "content": {
+                          "type": "grid",
+                          "props": {
+                            "columns": 3,
+                            "gap": 4
+                          },
+                          "children": [
+                            {
+                              "type": "card",
+                              "props": {
+                                "variant": "bordered"
+                              },
+                              "children": [
+                                {
+                                  "type": "stack",
+                                  "props": {
+                                    "direction": "vertical",
+                                    "gap": 3
+                                  },
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "props": {
+                                        "content": "Starter",
+                                        "weight": "bold",
+                                        "size": "lg"
+                                      }
+                                    },
+                                    {
+                                      "type": "heading",
+                                      "props": {
+                                        "content": "$9/mo",
+                                        "level": 2
+                                      }
+                                    },
+                                    {
+                                      "type": "button",
+                                      "props": {
+                                        "label": "Get Started",
+                                        "variant": "outline",
+                                        "fullWidth": true
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "card",
+                              "props": {
+                                "variant": "elevated"
+                              },
+                              "children": [
+                                {
+                                  "type": "stack",
+                                  "props": {
+                                    "direction": "vertical",
+                                    "gap": 3
+                                  },
+                                  "children": [
+                                    {
+                                      "type": "badge",
+                                      "props": {
+                                        "label": "Popular",
+                                        "variant": "primary"
+                                      }
+                                    },
+                                    {
+                                      "type": "text",
+                                      "props": {
+                                        "content": "Pro",
+                                        "weight": "bold",
+                                        "size": "lg"
+                                      }
+                                    },
+                                    {
+                                      "type": "heading",
+                                      "props": {
+                                        "content": "$29/mo",
+                                        "level": 2
+                                      }
+                                    },
+                                    {
+                                      "type": "button",
+                                      "props": {
+                                        "label": "Get Started",
+                                        "variant": "primary",
+                                        "fullWidth": true
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "type": "card",
+                              "props": {
+                                "variant": "bordered"
+                              },
+                              "children": [
+                                {
+                                  "type": "stack",
+                                  "props": {
+                                    "direction": "vertical",
+                                    "gap": 3
+                                  },
+                                  "children": [
+                                    {
+                                      "type": "text",
+                                      "props": {
+                                        "content": "Enterprise",
+                                        "weight": "bold",
+                                        "size": "lg"
+                                      }
+                                    },
+                                    {
+                                      "type": "heading",
+                                      "props": {
+                                        "content": "Custom",
+                                        "level": 2
+                                      }
+                                    },
+                                    {
+                                      "type": "button",
+                                      "props": {
+                                        "label": "Contact Sales",
+                                        "variant": "outline",
+                                        "fullWidth": true
+                                      }
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Progress Indicators"
+              },
+              "children": [
+                {
+                  "type": "stack",
+                  "props": {
+                    "direction": "vertical",
+                    "gap": 4
+                  },
+                  "children": [
+                    {
+                      "type": "progress",
+                      "props": {
+                        "label": "Project Completion",
+                        "value": 75,
+                        "variant": "success",
+                        "showValue": true
+                      }
+                    },
+                    {
+                      "type": "progress",
+                      "props": {
+                        "label": "Storage Used",
+                        "value": 45,
+                        "variant": "info",
+                        "showValue": true
+                      }
+                    },
+                    {
+                      "type": "progress",
+                      "props": {
+                        "label": "Bandwidth",
+                        "value": 90,
+                        "variant": "warning",
+                        "showValue": true
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

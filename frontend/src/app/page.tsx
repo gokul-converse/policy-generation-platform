@@ -17,6 +17,7 @@ import {
   UIPreview,
   LoadingOverlay,
 } from '@/components';
+import { Navbar } from '@/components/layout/navbar';
 import * as PolicyService from '@/services/policy.service';
 
 type AppStep = 'description' | 'document' | 'ui-preview';
@@ -136,8 +137,58 @@ export default function HomePage() {
 
   return (
     <>
+      {/* Navigation Bar */}
+      <Navbar />
+      
       {/* Main Content */}
       <main className="min-h-screen">
+        {/* Breadcrumb Navigation */}
+        {step !== 'description' && (
+          <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+              <nav className="flex items-center space-x-2 text-sm">
+                <button
+                  onClick={() => setStep('description')}
+                  className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium transition-colors"
+                >
+                  Policy Generator
+                </button>
+                
+                {step === 'document' && (
+                  <>
+                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    <span className="text-gray-900 dark:text-gray-100 font-medium">
+                      {policy?.title || 'Policy Document'}
+                    </span>
+                  </>
+                )}
+                
+                {step === 'ui-preview' && (
+                  <>
+                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    <button
+                      onClick={() => setStep('document')}
+                      className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium transition-colors"
+                    >
+                      {policy?.title || 'Policy Document'}
+                    </button>
+                    <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    <span className="text-gray-900 dark:text-gray-100 font-medium">
+                      Generated UI
+                    </span>
+                  </>
+                )}
+              </nav>
+            </div>
+          </div>
+        )}
+
         {/* Header - Only show on description step */}
         {step === 'description' && (
           <div className="bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
@@ -186,6 +237,7 @@ export default function HomePage() {
             generatedUI={generatedUI}
             onRegenerateUI={handleRegenerateUI}
             isRegenerating={isGeneratingUI}
+            onBack={() => setStep('document')}
           />
         )}
       </main>

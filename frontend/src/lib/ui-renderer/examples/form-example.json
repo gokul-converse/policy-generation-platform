@@ -1,0 +1,184 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "title": "Form Example",
+    "description": "A comprehensive form with validation and various input types"
+  },
+  "components": [
+    {
+      "type": "container",
+      "props": {
+        "maxWidth": "md",
+        "centered": true
+      },
+      "children": [
+        {
+          "type": "card",
+          "props": {
+            "title": "User Registration",
+            "subtitle": "Create a new account"
+          },
+          "children": [
+            {
+              "type": "form",
+              "props": {
+                "onSubmit": "registerUser",
+                "validationMode": "onSubmit"
+              },
+              "children": [
+                {
+                  "type": "stack",
+                  "props": {
+                    "direction": "vertical",
+                    "gap": 4
+                  },
+                  "children": [
+                    {
+                      "type": "alert",
+                      "props": {
+                        "variant": "info",
+                        "message": "All fields marked with * are required"
+                      }
+                    },
+                    {
+                      "type": "grid",
+                      "props": {
+                        "columns": 2,
+                        "gap": 4
+                      },
+                      "children": [
+                        {
+                          "type": "input",
+                          "props": {
+                            "name": "firstName",
+                            "label": "First Name",
+                            "placeholder": "John",
+                            "required": true
+                          }
+                        },
+                        {
+                          "type": "input",
+                          "props": {
+                            "name": "lastName",
+                            "label": "Last Name",
+                            "placeholder": "Doe",
+                            "required": true
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "input",
+                      "props": {
+                        "name": "email",
+                        "label": "Email Address",
+                        "type": "email",
+                        "placeholder": "john.doe@example.com",
+                        "required": true,
+                        "helperText": "We'll never share your email"
+                      }
+                    },
+                    {
+                      "type": "input",
+                      "props": {
+                        "name": "password",
+                        "label": "Password",
+                        "type": "password",
+                        "placeholder": "••••••••",
+                        "required": true,
+                        "helperText": "Must be at least 8 characters"
+                      }
+                    },
+                    {
+                      "type": "input",
+                      "props": {
+                        "name": "phone",
+                        "label": "Phone Number",
+                        "type": "tel",
+                        "placeholder": "+1 (555) 123-4567"
+                      }
+                    },
+                    {
+                      "type": "select",
+                      "props": {
+                        "name": "country",
+                        "label": "Country",
+                        "placeholder": "Select your country",
+                        "required": true,
+                        "options": [
+                          { "label": "United States", "value": "us" },
+                          { "label": "Canada", "value": "ca" },
+                          { "label": "United Kingdom", "value": "uk" },
+                          { "label": "Australia", "value": "au" }
+                        ]
+                      }
+                    },
+                    {
+                      "type": "textarea",
+                      "props": {
+                        "name": "bio",
+                        "label": "Bio",
+                        "placeholder": "Tell us about yourself...",
+                        "rows": 4,
+                        "maxLength": 500
+                      }
+                    },
+                    {
+                      "type": "divider"
+                    },
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Preferences",
+                        "weight": "semibold",
+                        "size": "lg"
+                      }
+                    },
+                    {
+                      "type": "checkbox",
+                      "props": {
+                        "name": "newsletter",
+                        "label": "Subscribe to newsletter"
+                      }
+                    },
+                    {
+                      "type": "checkbox",
+                      "props": {
+                        "name": "terms",
+                        "label": "I agree to the Terms and Conditions",
+                        "required": true
+                      }
+                    },
+                    {
+                      "type": "row",
+                      "props": {
+                        "gap": 3,
+                        "justify": "end"
+                      },
+                      "children": [
+                        {
+                          "type": "button",
+                          "props": {
+                            "label": "Cancel",
+                            "variant": "outline"
+                          }
+                        },
+                        {
+                          "type": "button",
+                          "props": {
+                            "label": "Create Account",
+                            "variant": "primary"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

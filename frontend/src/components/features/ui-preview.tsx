@@ -15,12 +15,14 @@ interface UIPreviewProps {
   generatedUI: GeneratedUI;
   onRegenerateUI: (instructions: string) => void;
   isRegenerating: boolean;
+  onBack?: () => void;
 }
 
 export const UIPreview: React.FC<UIPreviewProps> = ({
   generatedUI,
   onRegenerateUI,
   isRegenerating,
+  onBack,
 }) => {
   const [showJSON, setShowJSON] = useState(false);
   const [showRegenerateForm, setShowRegenerateForm] = useState(false);
@@ -34,12 +36,31 @@ export const UIPreview: React.FC<UIPreviewProps> = ({
     }
   };
 
+  const handleBack = () => {
+    if (onBack) {
+      onBack();
+    } else {
+      window.history.back();
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-white dark:bg-gray-900 z-50 overflow-hidden flex flex-col">
       {/* Minimal Header Bar */}
       <div className="flex-shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
         <div className="px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
+            <Button
+              onClick={handleBack}
+              variant="ghost"
+              size="sm"
+            >
+              <svg className="w-5 h-5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+              Back
+            </Button>
+            <div className="w-px h-6 bg-gray-200 dark:bg-gray-700" />
             <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               Generated UI Preview
             </h2>
@@ -75,18 +96,6 @@ export const UIPreview: React.FC<UIPreviewProps> = ({
                 Hide JSON
               </Button>
             )}
-            
-            <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1" />
-            
-            <Button
-              onClick={() => window.history.back()}
-              variant="ghost"
-              size="sm"
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </Button>
           </div>
         </div>
 

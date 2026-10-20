@@ -1,0 +1,856 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "title": "Policy Generation Platform - Full Application",
+    "description": "Complete policy generation workflow from description to UI preview",
+    "author": "Policy Generator System"
+  },
+  "components": [
+    {
+      "type": "container",
+      "props": {
+        "maxWidth": "full",
+        "padding": 0
+      },
+      "children": [
+        {
+          "type": "stack",
+          "props": {
+            "direction": "vertical",
+            "gap": 0
+          },
+          "children": [
+            {
+              "type": "card",
+              "props": {
+                "className": "rounded-none border-b border-gray-200 dark:border-gray-700 shadow-sm"
+              },
+              "children": [
+                {
+                  "type": "container",
+                  "props": {
+                    "maxWidth": "xl",
+                    "centered": true
+                  },
+                  "children": [
+                    {
+                      "type": "row",
+                      "props": {
+                        "justify": "between",
+                        "align": "center",
+                        "gap": 4
+                      },
+                      "children": [
+                        {
+                          "type": "stack",
+                          "props": {
+                            "direction": "vertical",
+                            "gap": 1
+                          },
+                          "children": [
+                            {
+                              "type": "heading",
+                              "props": {
+                                "content": "Policy Generation Platform",
+                                "level": 1,
+                                "size": "xl"
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "props": {
+                                "content": "AI-powered policy document generation and management",
+                                "variant": "caption",
+                                "size": "sm"
+                              }
+                            }
+                          ]
+                        },
+                        {
+                          "type": "row",
+                          "props": {
+                            "gap": 2
+                          },
+                          "children": [
+                            {
+                              "type": "badge",
+                              "props": {
+                                "label": "Draft",
+                                "variant": "warning"
+                              }
+                            },
+                            {
+                              "type": "button",
+                              "props": {
+                                "label": "Help",
+                                "variant": "ghost",
+                                "size": "sm"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "container",
+              "props": {
+                "maxWidth": "xl",
+                "centered": true,
+                "padding": 8
+              },
+              "children": [
+                {
+                  "type": "stack",
+                  "props": {
+                    "direction": "vertical",
+                    "gap": 8
+                  },
+                  "children": [
+                    {
+                      "type": "breadcrumb",
+                      "props": {
+                        "items": [
+                          {
+                            "label": "Home",
+                            "href": "/"
+                          },
+                          {
+                            "label": "Policy Generator"
+                          }
+                        ],
+                        "separator": "/"
+                      }
+                    },
+                    {
+                      "type": "card",
+                      "props": {
+                        "variant": "elevated"
+                      },
+                      "children": [
+                        {
+                          "type": "row",
+                          "props": {
+                            "gap": 0,
+                            "justify": "start"
+                          },
+                          "children": [
+                            {
+                              "type": "stack",
+                              "props": {
+                                "direction": "vertical",
+                                "gap": 0,
+                                "className": "flex-1"
+                              },
+                              "children": [
+                                {
+                                  "type": "row",
+                                  "props": {
+                                    "gap": 0,
+                                    "className": "border-b border-gray-200 dark:border-gray-700"
+                                  },
+                                  "children": [
+                                    {
+                                      "type": "card",
+                                      "props": {
+                                        "className": "flex-1 rounded-none border-0 border-b-2 border-blue-600 dark:border-blue-400 bg-blue-50 dark:bg-blue-900/20"
+                                      },
+                                      "children": [
+                                        {
+                                          "type": "row",
+                                          "props": {
+                                            "gap": 2,
+                                            "align": "center"
+                                          },
+                                          "children": [
+                                            {
+                                              "type": "badge",
+                                              "props": {
+                                                "label": "1",
+                                                "variant": "primary",
+                                                "size": "sm"
+                                              }
+                                            },
+                                            {
+                                              "type": "text",
+                                              "props": {
+                                                "content": "Describe Policy",
+                                                "weight": "semibold",
+                                                "size": "sm"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "card",
+                                      "props": {
+                                        "className": "flex-1 rounded-none border-0 bg-gray-50 dark:bg-gray-800"
+                                      },
+                                      "children": [
+                                        {
+                                          "type": "row",
+                                          "props": {
+                                            "gap": 2,
+                                            "align": "center"
+                                          },
+                                          "children": [
+                                            {
+                                              "type": "badge",
+                                              "props": {
+                                                "label": "2",
+                                                "variant": "default",
+                                                "size": "sm"
+                                              }
+                                            },
+                                            {
+                                              "type": "text",
+                                              "props": {
+                                                "content": "Review & Edit",
+                                                "weight": "medium",
+                                                "size": "sm"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "card",
+                                      "props": {
+                                        "className": "flex-1 rounded-none border-0 bg-gray-50 dark:bg-gray-800"
+                                      },
+                                      "children": [
+                                        {
+                                          "type": "row",
+                                          "props": {
+                                            "gap": 2,
+                                            "align": "center"
+                                          },
+                                          "children": [
+                                            {
+                                              "type": "badge",
+                                              "props": {
+                                                "label": "3",
+                                                "variant": "default",
+                                                "size": "sm"
+                                              }
+                                            },
+                                            {
+                                              "type": "text",
+                                              "props": {
+                                                "content": "UI Preview",
+                                                "weight": "medium",
+                                                "size": "sm"
+                                              }
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "card",
+                                  "props": {
+                                    "className": "rounded-none border-0",
+                                    "padding": 8
+                                  },
+                                  "children": [
+                                    {
+                                      "type": "stack",
+                                      "props": {
+                                        "direction": "vertical",
+                                        "gap": 6
+                                      },
+                                      "children": [
+                                        {
+                                          "type": "stack",
+                                          "props": {
+                                            "direction": "vertical",
+                                            "gap": 2
+                                          },
+                                          "children": [
+                                            {
+                                              "type": "heading",
+                                              "props": {
+                                                "content": "Step 1: Describe Your Policy",
+                                                "level": 2
+                                              }
+                                            },
+                                            {
+                                              "type": "text",
+                                              "props": {
+                                                "content": "Provide a brief description of the policy you want to generate. Be specific about the purpose, scope, and key requirements.",
+                                                "variant": "caption"
+                                              }
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "alert",
+                                          "props": {
+                                            "variant": "info",
+                                            "title": "Tips for better results",
+                                            "message": "Include specific details like target audience, compliance requirements, and organizational context for more accurate policy generation."
+                                          }
+                                        },
+                                        {
+                                          "type": "form",
+                                          "props": {
+                                            "onSubmit": "generatePolicy"
+                                          },
+                                          "children": [
+                                            {
+                                              "type": "stack",
+                                              "props": {
+                                                "direction": "vertical",
+                                                "gap": 4
+                                              },
+                                              "children": [
+                                                {
+                                                  "type": "textarea",
+                                                  "props": {
+                                                    "name": "description",
+                                                    "label": "Policy Description",
+                                                    "placeholder": "Example: Create a comprehensive remote work policy for a technology company with 500 employees. The policy should cover work hours flexibility, equipment provision, cybersecurity requirements, communication expectations, and performance evaluation criteria.",
+                                                    "rows": 8,
+                                                    "required": true,
+                                                    "helperText": "Minimum 50 characters recommended",
+                                                    "maxLength": 2000
+                                                  }
+                                                },
+                                                {
+                                                  "type": "row",
+                                                  "props": {
+                                                    "gap": 3,
+                                                    "justify": "between",
+                                                    "align": "center"
+                                                  },
+                                                  "children": [
+                                                    {
+                                                      "type": "text",
+                                                      "props": {
+                                                        "content": "The AI will analyze your description and generate a structured policy document.",
+                                                        "size": "sm",
+                                                        "variant": "caption"
+                                                      }
+                                                    },
+                                                    {
+                                                      "type": "button",
+                                                      "props": {
+                                                        "label": "Generate Policy",
+                                                        "variant": "primary",
+                                                        "size": "lg"
+                                                      }
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        },
+                                        {
+                                          "type": "divider"
+                                        },
+                                        {
+                                          "type": "stack",
+                                          "props": {
+                                            "direction": "vertical",
+                                            "gap": 3
+                                          },
+                                          "children": [
+                                            {
+                                              "type": "heading",
+                                              "props": {
+                                                "content": "Quick Templates",
+                                                "level": 3,
+                                                "size": "md"
+                                              }
+                                            },
+                                            {
+                                              "type": "grid",
+                                              "props": {
+                                                "columns": 3,
+                                                "gap": 3
+                                              },
+                                              "children": [
+                                                {
+                                                  "type": "card",
+                                                  "props": {
+                                                    "variant": "bordered",
+                                                    "hoverable": true,
+                                                    "padding": 4
+                                                  },
+                                                  "children": [
+                                                    {
+                                                      "type": "stack",
+                                                      "props": {
+                                                        "direction": "vertical",
+                                                        "gap": 2
+                                                      },
+                                                      "children": [
+                                                        {
+                                                          "type": "text",
+                                                          "props": {
+                                                            "content": "📱 Remote Work",
+                                                            "weight": "semibold"
+                                                          }
+                                                        },
+                                                        {
+                                                          "type": "text",
+                                                          "props": {
+                                                            "content": "Work from home guidelines",
+                                                            "size": "sm",
+                                                            "variant": "caption"
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                },
+                                                {
+                                                  "type": "card",
+                                                  "props": {
+                                                    "variant": "bordered",
+                                                    "hoverable": true,
+                                                    "padding": 4
+                                                  },
+                                                  "children": [
+                                                    {
+                                                      "type": "stack",
+                                                      "props": {
+                                                        "direction": "vertical",
+                                                        "gap": 2
+                                                      },
+                                                      "children": [
+                                                        {
+                                                          "type": "text",
+                                                          "props": {
+                                                            "content": "🔒 Data Privacy",
+                                                            "weight": "semibold"
+                                                          }
+                                                        },
+                                                        {
+                                                          "type": "text",
+                                                          "props": {
+                                                            "content": "GDPR compliance policy",
+                                                            "size": "sm",
+                                                            "variant": "caption"
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                },
+                                                {
+                                                  "type": "card",
+                                                  "props": {
+                                                    "variant": "bordered",
+                                                    "hoverable": true,
+                                                    "padding": 4
+                                                  },
+                                                  "children": [
+                                                    {
+                                                      "type": "stack",
+                                                      "props": {
+                                                        "direction": "vertical",
+                                                        "gap": 2
+                                                      },
+                                                      "children": [
+                                                        {
+                                                          "type": "text",
+                                                          "props": {
+                                                            "content": "⚖️ Code of Conduct",
+                                                            "weight": "semibold"
+                                                          }
+                                                        },
+                                                        {
+                                                          "type": "text",
+                                                          "props": {
+                                                            "content": "Employee behavior standards",
+                                                            "size": "sm",
+                                                            "variant": "caption"
+                                                          }
+                                                        }
+                                                      ]
+                                                    }
+                                                  ]
+                                                }
+                                              ]
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "card",
+                      "props": {
+                        "title": "Recent Policies",
+                        "subtitle": "Previously generated policy documents",
+                        "variant": "bordered"
+                      },
+                      "children": [
+                        {
+                          "type": "table",
+                          "props": {
+                            "columns": [
+                              {
+                                "key": "title",
+                                "label": "Policy Title",
+                                "width": "300px"
+                              },
+                              {
+                                "key": "status",
+                                "label": "Status",
+                                "align": "center"
+                              },
+                              {
+                                "key": "created",
+                                "label": "Created",
+                                "width": "150px"
+                              },
+                              {
+                                "key": "modified",
+                                "label": "Last Modified",
+                                "width": "150px"
+                              },
+                              {
+                                "key": "actions",
+                                "label": "Actions",
+                                "align": "center",
+                                "width": "120px"
+                              }
+                            ],
+                            "data": [
+                              {
+                                "title": "Remote Work Policy 2024",
+                                "status": "Published",
+                                "created": "2024-01-15",
+                                "modified": "2024-01-20",
+                                "actions": "Edit • View"
+                              },
+                              {
+                                "title": "Data Privacy & GDPR Compliance",
+                                "status": "Draft",
+                                "created": "2024-01-10",
+                                "modified": "2024-01-18",
+                                "actions": "Edit • View"
+                              },
+                              {
+                                "title": "Employee Code of Conduct",
+                                "status": "Review",
+                                "created": "2024-01-08",
+                                "modified": "2024-01-15",
+                                "actions": "Edit • View"
+                              },
+                              {
+                                "title": "IT Security Policy",
+                                "status": "Published",
+                                "created": "2024-01-05",
+                                "modified": "2024-01-12",
+                                "actions": "Edit • View"
+                              }
+                            ],
+                            "striped": true,
+                            "hoverable": true
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "grid",
+                      "props": {
+                        "columns": 3,
+                        "gap": 4
+                      },
+                      "children": [
+                        {
+                          "type": "card",
+                          "props": {
+                            "variant": "bordered",
+                            "padding": 6
+                          },
+                          "children": [
+                            {
+                              "type": "stack",
+                              "props": {
+                                "direction": "vertical",
+                                "gap": 3
+                              },
+                              "children": [
+                                {
+                                  "type": "row",
+                                  "props": {
+                                    "justify": "between",
+                                    "align": "start"
+                                  },
+                                  "children": [
+                                    {
+                                      "type": "stack",
+                                      "props": {
+                                        "direction": "vertical",
+                                        "gap": 1
+                                      },
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "props": {
+                                            "content": "Total Policies",
+                                            "variant": "caption",
+                                            "size": "sm"
+                                          }
+                                        },
+                                        {
+                                          "type": "heading",
+                                          "props": {
+                                            "content": "24",
+                                            "level": 2
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "badge",
+                                      "props": {
+                                        "label": "↑ 8%",
+                                        "variant": "success",
+                                        "size": "sm"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "progress",
+                                  "props": {
+                                    "value": 75,
+                                    "variant": "primary",
+                                    "size": "sm"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "card",
+                          "props": {
+                            "variant": "bordered",
+                            "padding": 6
+                          },
+                          "children": [
+                            {
+                              "type": "stack",
+                              "props": {
+                                "direction": "vertical",
+                                "gap": 3
+                              },
+                              "children": [
+                                {
+                                  "type": "row",
+                                  "props": {
+                                    "justify": "between",
+                                    "align": "start"
+                                  },
+                                  "children": [
+                                    {
+                                      "type": "stack",
+                                      "props": {
+                                        "direction": "vertical",
+                                        "gap": 1
+                                      },
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "props": {
+                                            "content": "In Review",
+                                            "variant": "caption",
+                                            "size": "sm"
+                                          }
+                                        },
+                                        {
+                                          "type": "heading",
+                                          "props": {
+                                            "content": "7",
+                                            "level": 2
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "badge",
+                                      "props": {
+                                        "label": "Pending",
+                                        "variant": "warning",
+                                        "size": "sm"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "progress",
+                                  "props": {
+                                    "value": 45,
+                                    "variant": "warning",
+                                    "size": "sm"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "card",
+                          "props": {
+                            "variant": "bordered",
+                            "padding": 6
+                          },
+                          "children": [
+                            {
+                              "type": "stack",
+                              "props": {
+                                "direction": "vertical",
+                                "gap": 3
+                              },
+                              "children": [
+                                {
+                                  "type": "row",
+                                  "props": {
+                                    "justify": "between",
+                                    "align": "start"
+                                  },
+                                  "children": [
+                                    {
+                                      "type": "stack",
+                                      "props": {
+                                        "direction": "vertical",
+                                        "gap": 1
+                                      },
+                                      "children": [
+                                        {
+                                          "type": "text",
+                                          "props": {
+                                            "content": "Published",
+                                            "variant": "caption",
+                                            "size": "sm"
+                                          }
+                                        },
+                                        {
+                                          "type": "heading",
+                                          "props": {
+                                            "content": "17",
+                                            "level": 2
+                                          }
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "badge",
+                                      "props": {
+                                        "label": "✓ Live",
+                                        "variant": "success",
+                                        "size": "sm"
+                                      }
+                                    }
+                                  ]
+                                },
+                                {
+                                  "type": "progress",
+                                  "props": {
+                                    "value": 100,
+                                    "variant": "success",
+                                    "size": "sm"
+                                  }
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "card",
+              "props": {
+                "className": "rounded-none border-t border-gray-200 dark:border-gray-700 mt-8 bg-gray-50 dark:bg-gray-900"
+              },
+              "children": [
+                {
+                  "type": "container",
+                  "props": {
+                    "maxWidth": "xl",
+                    "centered": true,
+                    "padding": 6
+                  },
+                  "children": [
+                    {
+                      "type": "row",
+                      "props": {
+                        "justify": "between",
+                        "align": "center"
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "© 2024 Policy Generation Platform. All rights reserved.",
+                            "size": "sm",
+                            "variant": "caption"
+                          }
+                        },
+                        {
+                          "type": "row",
+                          "props": {
+                            "gap": 4
+                          },
+                          "children": [
+                            {
+                              "type": "link",
+                              "props": {
+                                "href": "/privacy",
+                                "content": "Privacy Policy"
+                              }
+                            },
+                            {
+                              "type": "link",
+                              "props": {
+                                "href": "/terms",
+                                "content": "Terms of Service"
+                              }
+                            },
+                            {
+                              "type": "link",
+                              "props": {
+                                "href": "/docs",
+                                "content": "Documentation"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

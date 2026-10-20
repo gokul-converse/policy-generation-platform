@@ -33,3 +33,4 @@ export interface PaginatedResponse<T> {
 // Re-export domain types
 // ---------------------------------------------------------------------------
 export * from './policy';
+export * from './ui-schema';

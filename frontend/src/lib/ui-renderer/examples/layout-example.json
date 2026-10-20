@@ -1,0 +1,563 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "title": "Layout Patterns",
+    "description": "Demonstrates various layout patterns and responsive designs"
+  },
+  "components": [
+    {
+      "type": "container",
+      "props": {
+        "maxWidth": "xl",
+        "centered": true
+      },
+      "children": [
+        {
+          "type": "stack",
+          "props": {
+            "direction": "vertical",
+            "gap": 8
+          },
+          "children": [
+            {
+              "type": "heading",
+              "props": {
+                "content": "Layout Patterns",
+                "level": 1
+              }
+            },
+            {
+              "type": "text",
+              "props": {
+                "content": "Explore different layout patterns and responsive designs using the JSON UI Renderer."
+              }
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "heading",
+              "props": {
+                "content": "Grid Layout",
+                "level": 2
+              }
+            },
+            {
+              "type": "grid",
+              "props": {
+                "columns": 4,
+                "gap": 4
+              },
+              "children": [
+                {
+                  "type": "card",
+                  "props": {
+                    "variant": "elevated",
+                    "padding": 4
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Grid Item 1",
+                        "weight": "semibold",
+                        "align": "center"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "card",
+                  "props": {
+                    "variant": "elevated",
+                    "padding": 4
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Grid Item 2",
+                        "weight": "semibold",
+                        "align": "center"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "card",
+                  "props": {
+                    "variant": "elevated",
+                    "padding": 4
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Grid Item 3",
+                        "weight": "semibold",
+                        "align": "center"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "card",
+                  "props": {
+                    "variant": "elevated",
+                    "padding": 4
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Grid Item 4",
+                        "weight": "semibold",
+                        "align": "center"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "heading",
+              "props": {
+                "content": "Two Column Layout",
+                "level": 2
+              }
+            },
+            {
+              "type": "grid",
+              "props": {
+                "columns": 2,
+                "gap": 6
+              },
+              "children": [
+                {
+                  "type": "card",
+                  "props": {
+                    "title": "Left Column",
+                    "variant": "bordered"
+                  },
+                  "children": [
+                    {
+                      "type": "stack",
+                      "props": {
+                        "direction": "vertical",
+                        "gap": 3
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "This is a two-column layout using the grid component with columns set to 2."
+                          }
+                        },
+                        {
+                          "type": "list",
+                          "props": {
+                            "variant": "bullet",
+                            "items": [
+                              {
+                                "id": "1",
+                                "content": "Responsive by default"
+                              },
+                              {
+                                "id": "2",
+                                "content": "Equal width columns"
+                              },
+                              {
+                                "id": "3",
+                                "content": "Customizable gap"
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "card",
+                  "props": {
+                    "title": "Right Column",
+                    "variant": "bordered"
+                  },
+                  "children": [
+                    {
+                      "type": "stack",
+                      "props": {
+                        "direction": "vertical",
+                        "gap": 3
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Columns can contain any components including nested layouts."
+                          }
+                        },
+                        {
+                          "type": "alert",
+                          "props": {
+                            "variant": "success",
+                            "message": "Perfect for sidebars, content-sidebar patterns, or comparison views."
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "heading",
+              "props": {
+                "content": "Flex Row Layout",
+                "level": 2
+              }
+            },
+            {
+              "type": "card",
+              "props": {
+                "variant": "bordered"
+              },
+              "children": [
+                {
+                  "type": "row",
+                  "props": {
+                    "gap": 4,
+                    "justify": "between",
+                    "align": "center"
+                  },
+                  "children": [
+                    {
+                      "type": "stack",
+                      "props": {
+                        "direction": "vertical",
+                        "gap": 1
+                      },
+                      "children": [
+                        {
+                          "type": "heading",
+                          "props": {
+                            "content": "Product Title",
+                            "level": 3
+                          }
+                        },
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Space-between alignment",
+                            "size": "sm",
+                            "variant": "caption"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "type": "row",
+                      "props": {
+                        "gap": 2
+                      },
+                      "children": [
+                        {
+                          "type": "button",
+                          "props": {
+                            "label": "Edit",
+                            "variant": "outline",
+                            "size": "sm"
+                          }
+                        },
+                        {
+                          "type": "button",
+                          "props": {
+                            "label": "Delete",
+                            "variant": "danger",
+                            "size": "sm"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "heading",
+              "props": {
+                "content": "Stack Layout (Vertical)",
+                "level": 2
+              }
+            },
+            {
+              "type": "card",
+              "props": {
+                "variant": "bordered"
+              },
+              "children": [
+                {
+                  "type": "stack",
+                  "props": {
+                    "direction": "vertical",
+                    "gap": 3,
+                    "align": "stretch"
+                  },
+                  "children": [
+                    {
+                      "type": "badge",
+                      "props": {
+                        "label": "Step 1",
+                        "variant": "primary"
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Configure your settings"
+                      }
+                    },
+                    {
+                      "type": "progress",
+                      "props": {
+                        "value": 100,
+                        "variant": "success",
+                        "size": "sm"
+                      }
+                    },
+                    {
+                      "type": "badge",
+                      "props": {
+                        "label": "Step 2",
+                        "variant": "primary"
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Review and confirm"
+                      }
+                    },
+                    {
+                      "type": "progress",
+                      "props": {
+                        "value": 60,
+                        "variant": "info",
+                        "size": "sm"
+                      }
+                    },
+                    {
+                      "type": "badge",
+                      "props": {
+                        "label": "Step 3",
+                        "variant": "default"
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Complete setup"
+                      }
+                    },
+                    {
+                      "type": "progress",
+                      "props": {
+                        "value": 0,
+                        "variant": "default",
+                        "size": "sm"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "heading",
+              "props": {
+                "content": "Nested Layout Pattern",
+                "level": 2
+              }
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Dashboard Layout",
+                "variant": "elevated"
+              },
+              "children": [
+                {
+                  "type": "grid",
+                  "props": {
+                    "columns": 3,
+                    "gap": 4
+                  },
+                  "children": [
+                    {
+                      "type": "stack",
+                      "props": {
+                        "direction": "vertical",
+                        "gap": 2
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Total Sales",
+                            "size": "sm",
+                            "variant": "caption"
+                          }
+                        },
+                        {
+                          "type": "heading",
+                          "props": {
+                            "content": "$45,231",
+                            "level": 3
+                          }
+                        },
+                        {
+                          "type": "row",
+                          "props": {
+                            "gap": 1,
+                            "align": "center"
+                          },
+                          "children": [
+                            {
+                              "type": "badge",
+                              "props": {
+                                "label": "↑ 12%",
+                                "variant": "success",
+                                "size": "xs"
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "props": {
+                                "content": "vs last month",
+                                "size": "xs",
+                                "variant": "caption"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "stack",
+                      "props": {
+                        "direction": "vertical",
+                        "gap": 2
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "New Users",
+                            "size": "sm",
+                            "variant": "caption"
+                          }
+                        },
+                        {
+                          "type": "heading",
+                          "props": {
+                            "content": "1,234",
+                            "level": 3
+                          }
+                        },
+                        {
+                          "type": "row",
+                          "props": {
+                            "gap": 1,
+                            "align": "center"
+                          },
+                          "children": [
+                            {
+                              "type": "badge",
+                              "props": {
+                                "label": "↑ 8%",
+                                "variant": "success",
+                                "size": "xs"
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "props": {
+                                "content": "vs last month",
+                                "size": "xs",
+                                "variant": "caption"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "stack",
+                      "props": {
+                        "direction": "vertical",
+                        "gap": 2
+                      },
+                      "children": [
+                        {
+                          "type": "text",
+                          "props": {
+                            "content": "Conversion",
+                            "size": "sm",
+                            "variant": "caption"
+                          }
+                        },
+                        {
+                          "type": "heading",
+                          "props": {
+                            "content": "3.24%",
+                            "level": 3
+                          }
+                        },
+                        {
+                          "type": "row",
+                          "props": {
+                            "gap": 1,
+                            "align": "center"
+                          },
+                          "children": [
+                            {
+                              "type": "badge",
+                              "props": {
+                                "label": "↓ 2%",
+                                "variant": "danger",
+                                "size": "xs"
+                              }
+                            },
+                            {
+                              "type": "text",
+                              "props": {
+                                "content": "vs last month",
+                                "size": "xs",
+                                "variant": "caption"
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
