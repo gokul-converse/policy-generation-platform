@@ -1,0 +1,15 @@
+SAMPLE DOCUMENT — NOT APPROVED COMPANY POLICY
+
+Title: Sample Leave Guidelines
+
+Example leave types:
+Annual Leave, Sick Leave and Casual Leave.
+
+Leave application:
+A request may contain employee ID, leave type,
+start date, end date and requested days.
+
+Rules requiring confirmation:
+Eligibility, leave limits, carry-forward, notice periods
+and approval escalation must be checked against
+authorized company sources.
