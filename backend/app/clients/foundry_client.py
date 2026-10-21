@@ -1,26 +1,17 @@
-
-from functools import lru_cache
-
-from azure.identity.aio import ClientSecretCredential
+"""Shared Microsoft Agent Framework Foundry client."""
 from agent_framework.foundry import FoundryChatClient
-
-from app.config.settings import (
-    AZURE_CLIENT_ID,
-    AZURE_CLIENT_SECRET,
-    AZURE_TENANT_ID,
-    FOUNDRY_MODEL,
-    FOUNDRY_PROJECT_ENDPOINT,
-)
+from app.config.settings import settings
+from azure.identity import ClientSecretCredential
 
 
-@lru_cache(maxsize=1)
 def get_foundry_credential() -> ClientSecretCredential:
-    """Create the Azure client-secret credential."""
+    """Create and cache the Azure client-secret credential."""
+
     if not all(
         [
-            AZURE_TENANT_ID,
-            AZURE_CLIENT_ID,
-            AZURE_CLIENT_SECRET,
+            settings.azure_tenant_id,
+            settings.azure_client_id,
+            settings.azure_client_secret,
         ]
     ):
         raise ValueError(
@@ -28,22 +19,24 @@ def get_foundry_credential() -> ClientSecretCredential:
         )
 
     return ClientSecretCredential(
-        tenant_id=AZURE_TENANT_ID,
-        client_id=AZURE_CLIENT_ID,
-        client_secret=AZURE_CLIENT_SECRET,
+        tenant_id=settings.azure_tenant_id,
+        client_id=settings.azure_client_id,
+        client_secret=settings.azure_client_secret,
     )
 
 
-@lru_cache(maxsize=1)
+
 def get_foundry_client() -> FoundryChatClient:
-    """Return the shared Azure AI Foundry chat client."""
-    if not FOUNDRY_PROJECT_ENDPOINT or not FOUNDRY_MODEL:
+    
+    if not settings.foundry_project_endpoint or not settings.foundry_model:
         raise ValueError(
-            "FOUNDRY_PROJECT_ENDPOINT and FOUNDRY_MODEL must be configured."
+            "FOUNDRY_PROJECT_ENDPOINT and FOUNDRY_MODEL "
+            "must be configured."
         )
 
     return FoundryChatClient(
-        project_endpoint=FOUNDRY_PROJECT_ENDPOINT,
-        model=FOUNDRY_MODEL,
+        project_endpoint=settings.foundry_project_endpoint,
+        model=settings.foundry_model,
         credential=get_foundry_credential(),
     )
+
