@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -51,9 +51,41 @@ async def get_db():
         yield session
 
 
+FTS_INIT_STATEMENTS = [
+    """
+    CREATE VIRTUAL TABLE IF NOT EXISTS document_chunks_fts USING fts5(
+        chunk_text,
+        section_title,
+        content='document_chunks',
+        content_rowid='chunk_id'
+    );
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS document_chunks_ai AFTER INSERT ON document_chunks BEGIN
+        INSERT INTO document_chunks_fts(rowid, chunk_text, section_title)
+        VALUES (new.chunk_id, new.chunk_text, COALESCE(new.section_title, ''));
+    END;
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS document_chunks_ad AFTER DELETE ON document_chunks BEGIN
+        INSERT INTO document_chunks_fts(document_chunks_fts, rowid, chunk_text, section_title)
+        VALUES ('delete', old.chunk_id, old.chunk_text, COALESCE(old.section_title, ''));
+    END;
+    """,
+    """
+    CREATE TRIGGER IF NOT EXISTS document_chunks_au AFTER UPDATE ON document_chunks BEGIN
+        INSERT INTO document_chunks_fts(document_chunks_fts, rowid, chunk_text, section_title)
+        VALUES ('delete', old.chunk_id, old.chunk_text, COALESCE(old.section_title, ''));
+        INSERT INTO document_chunks_fts(rowid, chunk_text, section_title)
+        VALUES (new.chunk_id, new.chunk_text, COALESCE(new.section_title, ''));
+    END;
+    """,
+]
+
+
 async def create_db_tables():
     """Create registered tables in the development database."""
-    # Import models so SQLAlchemy registers their table definitions.
+    import app.models  # noqa: F401
     from app.models import policy_db, skill_db  # noqa: F401
 
     async with engine.begin() as connection:
