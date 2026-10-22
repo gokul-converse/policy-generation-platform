@@ -1,20 +1,18 @@
-
 """FastAPI application entry point."""
 
-from app.api.skills import router as skills_router
-from app.common.logger import setup_logging
 from fastapi import FastAPI
 
-
-
-# Keep your existing FastAPI initialization below.
+from app.api.policies import router as policies_router
+from app.api.skills import router as skills_router
+from app.common.logger import setup_logging
 
 app = FastAPI(
     title="Policy Generation API",
-    description="API for generating and managing reusable policy skills.",
+    description="API for generating and managing reusable policy skills and enterprise policies.",
     version="0.1.0",
 )
 setup_logging()
+
 
 @app.get("/health")
 async def health_check():
@@ -23,3 +21,4 @@ async def health_check():
 
 
 app.include_router(skills_router)
+app.include_router(policies_router)

@@ -1,4 +1,3 @@
-
 """Database operations for skills and their versions."""
 
 import uuid
@@ -17,8 +16,9 @@ from app.services.skill_file_service import write_skill_file
 async def save_skill_set(
     session: AsyncSession,
     skill_set: GeneratedSkillSet,
+    source_requirement_version_id: str | None = None,
 ) -> list[Skill]:
-    """Save generated skills as draft versions with Markdown files."""
+    """Save generated skills as draft versions with Markdown files and optional source provenance."""
 
     names = [skill.name for skill in skill_set.skills]
 
@@ -67,6 +67,7 @@ async def save_skill_set(
             skill = Skill(
                 id=skill_id,
                 name=generated_skill.name,
+                description=generated_skill.description,
             )
 
             skill.versions.append(
@@ -74,6 +75,7 @@ async def save_skill_set(
                     version=1,
                     file_path=relative_path,
                     status="draft",
+                    source_requirement_version_id=source_requirement_version_id,
                 )
             )
 
@@ -110,3 +112,68 @@ async def save_skill_set(
                 pass
 
         raise
+
+
+async def get_skill_by_id(
+    session: AsyncSession,
+    skill_id: uuid.UUID,
+) -> Skill | None:
+    """Fetch a skill by ID including all version records."""
+    result = await session.execute(
+        select(Skill)
+        .options(selectinload(Skill.versions))
+        .where(Skill.id == skill_id)
+    )
+    return result.scalars().first()
+
+
+async def get_skill_by_name(
+    session: AsyncSession,
+    name: str,
+) -> Skill | None:
+    """Fetch a skill by name including all version records."""
+    result = await session.execute(
+        select(Skill)
+        .options(selectinload(Skill.versions))
+        .where(Skill.name == name)
+    )
+    return result.scalars().first()
+
+
+async def list_skills(
+    session: AsyncSession,
+) -> list[Skill]:
+    """List all skills with their versions."""
+    result = await session.execute(
+        select(Skill).options(selectinload(Skill.versions)).order_by(Skill.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+async def get_skill_versions(
+    session: AsyncSession,
+    skill_id: uuid.UUID,
+) -> list[SkillVersion]:
+    """Retrieve all versions of a given skill."""
+    result = await session.execute(
+        select(SkillVersion)
+        .where(SkillVersion.skill_id == skill_id)
+        .order_by(SkillVersion.version.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def get_skill_version(
+    session: AsyncSession,
+    skill_id: uuid.UUID,
+    version: int,
+) -> SkillVersion | None:
+    """Retrieve a specific version of a skill."""
+    result = await session.execute(
+        select(SkillVersion)
+        .where(
+            SkillVersion.skill_id == skill_id,
+            SkillVersion.version == version,
+        )
+    )
+    return result.scalars().first()

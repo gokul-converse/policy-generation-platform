@@ -1,4 +1,3 @@
-
 """Generate reusable draft skills from validated requirements."""
 
 import json
@@ -200,6 +199,13 @@ def validate_generated_skill_set(
 
         body = skill.instructions.strip()
 
+        # Reject placeholder tokens
+        for placeholder in ["[TODO", "[TBD", "[INSERT", "[PLACEHOLDER"]:
+            if placeholder in body.upper():
+                raise ValueError(
+                    f"Skill {skill.name!r} contains placeholder text ({placeholder})."
+                )
+
         if body.startswith("---"):
             raise ValueError(
                 f"Skill {skill.name!r} must not include YAML frontmatter "
@@ -240,23 +246,38 @@ def validate_generated_skill_set(
 
 
 async def generate_skills(
-    validated_requirements: dict[str, Any],
+    validated_requirements: dict[str, Any] | list[Any],
+    client: Any = None,
+    max_retries: int = 2,
 ) -> GeneratedSkillSet:
-    """Generate and validate draft skills from validated requirements."""
+    """Generate and validate draft skills from validated requirements with automatic retries."""
 
     logger.info("Starting skill generation agent.")
-    known_requirement_ids = validate_requirement_input(
-        validated_requirements
-    )
+
+    # Normalize to dict format if passed as a list or Pydantic model
+    if isinstance(validated_requirements, list):
+        req_list = [
+            r if isinstance(r, dict) else (r.model_dump() if hasattr(r, "model_dump") else dict(r))
+            for r in validated_requirements
+        ]
+        norm_requirements = {"requirements": req_list}
+    elif isinstance(validated_requirements, dict):
+        norm_requirements = validated_requirements
+    elif hasattr(validated_requirements, "model_dump"):
+        norm_requirements = validated_requirements.model_dump()
+    else:
+        raise ValueError("Unsupported validated_requirements type.")
+
+    known_requirement_ids = validate_requirement_input(norm_requirements)
     logger.info(
         "Validated %d requirements for skill generation.",
         len(known_requirement_ids),
     )
 
-    client = get_foundry_client()
+    llm_client = client or get_foundry_client()
 
     agent = Agent(
-        client=client,
+        client=llm_client,
         name="SkillGeneratorAgent",
         instructions=SKILL_GENERATOR_INSTRUCTIONS,
         default_options={
@@ -264,27 +285,50 @@ async def generate_skills(
         },
     )
 
-    result = await agent.run(
+    prompt_msg = (
         "Generate reusable draft skills for these validated requirements. "
         "Follow the required Markdown body structure exactly. "
         "Use only the supplied requirement IDs and preserve their original "
         "text in the Source Requirements section.\n\n"
-        + json.dumps(validated_requirements, indent=2, ensure_ascii=False)
+        + json.dumps(norm_requirements, indent=2, ensure_ascii=False)
     )
 
-    if getattr(result, "value", None) is not None:
-        skill_set = GeneratedSkillSet.model_validate(result.value)
-    else:
-        skill_set = GeneratedSkillSet.model_validate_json(result.text)
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            result = await agent.run(prompt_msg)
 
-    validate_generated_skill_set(
-        skill_set=skill_set,
-        validated_requirements=validated_requirements,
-        known_requirement_ids=known_requirement_ids,
-    )
+            if getattr(result, "value", None) is not None:
+                skill_set = GeneratedSkillSet.model_validate(result.value)
+            else:
+                skill_set = GeneratedSkillSet.model_validate_json(result.text)
 
-    logger.info(
-        "Skill generation agent produced %d validated skills.",
-        len(skill_set.skills),
-    )
-    return skill_set
+            validate_generated_skill_set(
+                skill_set=skill_set,
+                validated_requirements=norm_requirements,
+                known_requirement_ids=known_requirement_ids,
+            )
+
+            logger.info(
+                "Skill generation agent produced %d validated skills on attempt %d.",
+                len(skill_set.skills),
+                attempt,
+            )
+            return skill_set
+        except Exception as exc:
+            last_error = exc
+            logger.warning(
+                "Skill generation attempt %d/%d failed validation: %s",
+                attempt,
+                max_retries,
+                exc,
+            )
+            if attempt == max_retries:
+                raise last_error
+            prompt_msg = (
+                f"Previous skill generation attempt failed with error:\n{exc}\n\n"
+                "Please fix this issue and generate reusable draft skills:\n\n"
+                + json.dumps(norm_requirements, indent=2, ensure_ascii=False)
+            )
+
+    raise last_error or RuntimeError("Skill generation failed after retries.")

@@ -1,4 +1,3 @@
-
 """Asynchronous SQLite database configuration."""
 
 from pathlib import Path
@@ -55,7 +54,7 @@ async def get_db():
 async def create_db_tables():
     """Create registered tables in the development database."""
     # Import models so SQLAlchemy registers their table definitions.
-    from app.models import skill_db  # noqa: F401
+    from app.models import policy_db, skill_db  # noqa: F401
 
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)

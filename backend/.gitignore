@@ -1,0 +1,31 @@
+# Python and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Local databases and runtime output
+*.db
+*.sqlite
+*.sqlite3
+logs/
+data/policy.txt
+data/policies/
+app/generated_skills/
+generated_skills/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

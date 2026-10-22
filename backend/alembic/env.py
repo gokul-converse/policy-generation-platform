@@ -1,4 +1,3 @@
-
 """Alembic migration environment for async SQLAlchemy."""
 
 import asyncio
@@ -6,7 +5,7 @@ from logging.config import fileConfig
 
 from alembic import context
 from app.db.session import DATABASE_URL, Base
-from app.models import skill_db  # noqa: F401
+from app.models import policy_db, skill_db  # noqa: F401
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -18,6 +17,16 @@ if config.config_file_name is not None:
 # Register the application's SQLAlchemy models.
 target_metadata = Base.metadata
 
+# Only manage tables owned by our modules; protect all teammate-owned tables
+OWNED_TABLES = {"skills", "skill_versions", "policies", "policy_versions"}
+
+
+def include_object(object, name, type_, reflected, compare_to):
+    """Filter out teammate-owned tables so Alembic never alters or drops them."""
+    if type_ == "table":
+        return name in OWNED_TABLES
+    return True
+
 
 def run_migrations_offline() -> None:
     """Run migrations without opening a database connection."""
@@ -27,6 +36,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -39,6 +49,7 @@ def do_run_migrations(connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
+        include_object=include_object,
     )
 
     with context.begin_transaction():

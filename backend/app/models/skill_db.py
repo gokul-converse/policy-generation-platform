@@ -1,19 +1,20 @@
-
 """SQLAlchemy models for skills and their versions."""
 
 import uuid
 from datetime import datetime, timezone
 
-from app.db.session import Base
 from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.session import Base
 
 
 class Skill(Base):
@@ -31,6 +32,10 @@ class Skill(Base):
         unique=True,
         nullable=False,
         index=True,
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -74,6 +79,10 @@ class SkillVersion(Base):
         String(20),
         default="draft",
         nullable=False,
+    )
+    source_requirement_version_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
