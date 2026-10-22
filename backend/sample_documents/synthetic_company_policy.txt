@@ -1,0 +1,50 @@
+SAMPLE COMPANY POLICY HANDBOOK
+Company: XYZ Corporation Pvt Ltd
+Document Status: Synthetic Sample — Not an Approved Company Policy
+Version: 1.0
+
+1. LEAVE POLICY
+
+Annual Leave:
+Employees may request up to 18 days of annual leave per year in this synthetic example. Requests require manager review.
+
+Sick Leave:
+A sample allowance of 12 days per year is used for testing. Employees should submit their requests through the leave request process.
+
+Casual Leave:
+A sample allowance of 6 days per year is used for personal matters. Manager review is required.
+
+Maternity Leave:
+Maternity leave requests must be reviewed according to the applicable policy. The entitlement is not defined in this sample document.
+
+2. EXPENSE POLICY
+
+Travel:
+Business travel expenses may be submitted for review with supporting receipts.
+
+Meals:
+Business-related meal expenses may be submitted with supporting documentation.
+
+Accommodation:
+Hotel and accommodation expenses related to approved business travel may be submitted for review.
+
+Internet:
+Business internet expenses may be submitted when they are related to approved business activities.
+
+3. APPROVAL POLICY
+
+Leave Requests:
+The manager reviews leave requests in this synthetic example.
+
+Expense Claims:
+The Finance team reviews expense claims in this synthetic example.
+
+High-Value Expenses:
+High-value expenses may require both Manager and Finance review. No monetary threshold is defined in this sample.
+
+Access Requests:
+Access requests require authorization before access is granted.
+
+4. IMPORTANT NOTICE
+
+This document contains synthetic data created only for development and testing. It does not represent verified employment benefits, financial limits, access permissions, or approved company policy. All policy decisions must be validated against an authorized source before production use.
