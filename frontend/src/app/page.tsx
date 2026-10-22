@@ -38,7 +38,7 @@ export default function HomePage() {
   const [error, setError] = useState<string | null>(null);
 
   /**
-   * Handler: Generate Policy from Description
+   * Handler:   from Description
    */
   const handleGeneratePolicy = async (description: string) => {
     setIsGeneratingPolicy(true);
@@ -141,7 +141,7 @@ export default function HomePage() {
       <Navbar />
       
       {/* Main Content */}
-      <main className="min-h-screen">
+      <main className="min-h-screen bg-white dark:bg-gray-800">
         {/* Breadcrumb Navigation */}
         {step !== 'description' && (
           <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
@@ -190,7 +190,7 @@ export default function HomePage() {
         )}
 
         {/* Header - Only show on description step */}
-        {step === 'description' && (
+        {/* {step === 'description' && (
           <div className="bg-gray-50 dark:bg-gray-900 py-12 px-4 sm:px-6 lg:px-8">
             <div className="max-w-4xl mx-auto text-center">
               <h1 className="text-4xl md:text-5xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
@@ -201,7 +201,7 @@ export default function HomePage() {
               </p>
             </div>
           </div>
-        )}
+        )} */}
 
         {/* Error Display */}
         {error && step === 'description' && (

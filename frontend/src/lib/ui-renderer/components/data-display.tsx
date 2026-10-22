@@ -82,7 +82,7 @@ export const List: React.FC<ListProps & { renderChild?: (child: any) => React.Re
   renderChild,
 }) => {
   const ListTag = variant === 'numbered' ? 'ol' : 'ul';
-  
+
   const variantClasses = {
     plain: '',
     bullet: 'list-disc list-inside',
@@ -92,15 +92,27 @@ export const List: React.FC<ListProps & { renderChild?: (child: any) => React.Re
 
   return (
     <ListTag className={`space-y-${spacing} ${variantClasses[variant]} ${className}`}>
-      {items.map((item) => (
-        <li key={item.id} className="text-gray-700 dark:text-gray-300">
-          {typeof item.content === 'string'
-            ? item.content
-            : renderChild
-            ? renderChild(item.content)
-            : null}
-        </li>
-      ))}
+      {items.map((item, index) => {
+        // Handle both string arrays and object arrays
+        if (typeof item === 'string') {
+          return (
+            <li key={index} className="text-gray-700 dark:text-gray-300">
+              {item}
+            </li>
+          );
+        }
+        
+        // Handle object format with id and content
+        return (
+          <li key={item.id || index} className="text-gray-700 dark:text-gray-300">
+            {typeof item.content === 'string'
+              ? item.content
+              : renderChild
+              ? renderChild(item.content)
+              : null}
+          </li>
+        );
+      })}
     </ListTag>
   );
 };

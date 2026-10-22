@@ -98,7 +98,7 @@ const ComponentRenderer: React.FC<{
   onAction?: (actionId: string, context: any) => Promise<void>;
 }> = ({ component, dataContext, debug, onAction }) => {
   // Handle conditional rendering
-  if (component.condition) {
+  if (component?.condition) {
     try {
       // In a real implementation, evaluate condition expression
       // For now, we'll just check if it's truthy
@@ -111,7 +111,7 @@ const ComponentRenderer: React.FC<{
   }
 
   // Get component from registry
-  const Component = componentRegistry.get(component.type);
+  const Component = componentRegistry.get(component?.type);
 
   if (!Component) {
     if (debug) {

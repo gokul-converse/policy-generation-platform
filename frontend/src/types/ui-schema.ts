@@ -429,7 +429,7 @@ export interface TableProps extends BaseComponentProps {
 }
 
 export interface ListProps extends BaseComponentProps {
-  items: Array<{
+  items: Array<string | {
     id: string;
     content: string | UIComponentSchema;
   }>;

@@ -26,16 +26,16 @@ const navItems: NavItem[] = [
     href: '/json-playground',
     description: 'Live JSON editor',
   },
-  {
-    label: 'Examples',
-    href: '/demo-renderer',
-    description: 'View examples',
-  },
-  {
-    label: 'Full App Demo',
-    href: '/full-app-demo',
-    description: 'Complete app',
-  },
+  // {
+  //   label: 'Examples',
+  //   href: '/demo-renderer',
+  //   description: 'View examples',
+  // },
+  // {
+  //   label: 'Full App Demo',
+  //   href: '/full-app-demo',
+  //   description: 'Complete app',
+  // },
 ];
 
 export const Navbar: React.FC<{ title?: string }> = ({ title = 'Policy Generation Platform' }) => {

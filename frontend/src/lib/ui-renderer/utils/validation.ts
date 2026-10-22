@@ -212,7 +212,7 @@ function sanitizeComponent(component: UIComponentSchema): UIComponentSchema {
 
   // Copy safe optional properties
   if (component.binding) sanitized.binding = component.binding;
-  if (component.condition) sanitized.condition = component.condition;
+  if (component?.condition) sanitized.condition = component.condition;
 
   return sanitized;
 }
