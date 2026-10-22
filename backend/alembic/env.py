@@ -1,47 +1,42 @@
-"""Alembic migration environment for async SQLAlchemy."""
-import asyncio
-import os
-from logging.config import fileConfig
 
-from alembic import context
-from alembic.autogenerate import comparators
-from alembic.autogenerate.compare.schema import PriorityDispatchResult
-from alembic.util.langhelpers import DispatchPriority
-from app.db.session import DATABASE_URL, Base
-from app.models import policy_db, skill_db  # noqa: F401
+from logging.config import fileConfig
+from pathlib import Path
+import asyncio
+import sys
+
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
+from alembic import context
+
+# Ensure the backend directory is importable.
+BACKEND_DIR = Path(__file__).resolve().parents[1]
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from app.db.session import Base, DATABASE_PATH  # noqa: E402
+import app.models  # noqa: E402, F401
 
 config = context.config
-def get_url() -> str:
-    """Return the test database URL when explicitly provided."""
-    return os.environ.get("ALEMBIC_DATABASE_URL", DATABASE_URL)
+
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Register the application's SQLAlchemy models.
+# Use the same SQLite file as the application.
+database_url = f"sqlite+aiosqlite:///{DATABASE_PATH.as_posix()}"
+config.set_main_option("sqlalchemy.url", database_url)
+
 target_metadata = Base.metadata
-
-def include_object(object, name, type_, reflected, compare_to):
-    """Exclude SQLite FTS virtual tables and their shadow tables from autogeneration."""
-    if type_ == "table":
-        if name == "document_chunks_fts" or name.startswith(
-            "document_chunks_fts_"
-        ):
-            return False
-
-    return True
 
 
 def run_migrations_offline() -> None:
-    """Run migrations without opening a database connection."""
+    """Run migrations without creating a database connection."""
     context.configure(
-        url=get_url(),
+        url=config.get_main_option("sqlalchemy.url"),
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
-        include_object=include_object,
+        render_as_batch=True,
     )
 
     with context.begin_transaction():
@@ -49,12 +44,11 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection) -> None:
-    """Run synchronous Alembic operations on an async connection."""
     context.configure(
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
-        include_object=include_object,
+        render_as_batch=True,
     )
 
     with context.begin_transaction():
@@ -62,9 +56,8 @@ def do_run_migrations(connection) -> None:
 
 
 async def run_async_migrations() -> None:
-    """Run migrations using the asynchronous database driver."""
     connectable = async_engine_from_config(
-        {"sqlalchemy.url": get_url()},
+        config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
@@ -75,9 +68,7 @@ async def run_async_migrations() -> None:
     await connectable.dispose()
 
 
-
 def run_migrations_online() -> None:
-    """Start the asynchronous migration workflow."""
     asyncio.run(run_async_migrations())
 
 

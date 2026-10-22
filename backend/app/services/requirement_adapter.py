@@ -168,3 +168,59 @@ async def load_requirements_from_session(
 
     adapted = adapt_requirements(items)
     return adapted, domain, original_description
+
+
+async def load_single_requirement(
+    session: AsyncSession,
+    requirement_id: str,
+) -> tuple[list[ValidatedRequirementInput], str | None, str | None]:
+    """Load one approved requirement using its ID."""
+
+    query = text(
+        """
+        SELECT
+            r.requirement_id,
+            r.session_id,
+            r.topic,
+            r.description,
+            r.status,
+            s.domain,
+            s.original_description
+        FROM requirements AS r
+        JOIN requirement_sessions AS s
+            ON s.session_id = r.session_id
+        WHERE r.requirement_id = :requirement_id
+        """
+    )
+
+    result = await session.execute(
+        query,
+        {"requirement_id": requirement_id},
+    )
+    row = result.first()
+
+    if row is None:
+        raise ValueError(
+            f"Requirement '{requirement_id}' was not found."
+        )
+
+    if row.status not in {"validated", "confirmed"}:
+        raise ValueError(
+            f"Requirement '{requirement_id}' is not approved for generation. "
+            f"Current status: '{row.status}'."
+        )
+
+    requirement = ValidatedRequirementInput(
+        requirement_id=row.requirement_id,
+        text=row.description,
+        session_id=row.session_id,
+        category=row.topic or row.domain,
+        numeric_values=extract_numbers_and_units(row.description),
+        status=row.status,
+    )
+
+    return (
+        [requirement],
+        row.domain,
+        row.original_description,
+    )

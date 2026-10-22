@@ -40,23 +40,13 @@ class ValidatedRequirementInput(BaseModel):
 
 
 class SkillGenerationRequest(BaseModel):
-    """Request model for skill generation."""
-
     model_config = ConfigDict(extra="ignore")
 
-    session_id: str | None = Field(
-        default=None,
-        description="Session ID from conversational requirement gathering to auto-load requirement_id and text from teammate's table.",
+    requirement_id: str = Field(
+        min_length=1,
+        max_length=100,
+        description="Requirement ID used to generate skills.",
     )
-    requirements: list[ValidatedRequirementInput] | None = Field(
-        default=None,
-        description="Optional list of requirements with requirement_id and text (not required if session_id is provided).",
-    )
-    source_requirement_version_id: str | None = Field(
-        default=None,
-        description="Optional identifier of the validated requirement snapshot.",
-    )
-
 
 class GeneratedSkillResponse(BaseModel):
     """Summary of a generated and persisted skill."""

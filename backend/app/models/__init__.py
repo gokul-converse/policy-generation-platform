@@ -1,5 +1,9 @@
 
+from app.models import requirement_db, skill_db, policy_db
+
 from app.models.skill_db import Skill, SkillVersion
+
+from app.models.policy_db import Policy, PolicyVersion
 
 from app.models.requirement_db import (
     RequirementSession,
@@ -18,10 +22,13 @@ from app.models.requirement_db import (
 )
 
 __all__ = [
-    # Skill models
+    "requirement_db",
+    "skill_db",
+    "policy_db",
     "Skill",
     "SkillVersion",
-    # Requirement models
+    "Policy",
+    "PolicyVersion",
     "RequirementSession",
     "Requirement",
     "RequirementVersion",
@@ -29,7 +36,6 @@ __all__ = [
     "RequirementEvidence",
     "ClarificationItem",
     "ConversationMessage",
-    # Document and reference models
     "Document",
     "DocumentChunk",
     "LeaveType",
@@ -37,4 +43,3 @@ __all__ = [
     "AccessRole",
     "ApprovalRule",
 ]
-

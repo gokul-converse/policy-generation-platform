@@ -47,39 +47,33 @@ async def generate_skills_endpoint(
     request: SkillGenerationRequest,
     session: AsyncSession = Depends(get_db),
 ) -> SkillGenerationResponse:
-    """Generate skills from validated requirements and save them as drafts."""
+    """Generate skills from a single requirement ID."""
 
-    req_count = len(request.requirements) if request.requirements else 0
     logger.info(
-        "Received skill generation request with %d requirements (session_id=%s).",
-        req_count,
-        request.session_id,
+        "Received skill generation request (requirement_id=%s).",
+        request.requirement_id,
     )
 
     try:
         saved_skills = await generate_and_save_skills(
             session=session,
-            validated_requirements=request.requirements,
-            session_id=request.session_id,
-            source_requirement_version_id=request.source_requirement_version_id,
+            requirement_id=request.requirement_id,
         )
 
-        logger.info("Returning %d generated skills.", len(saved_skills))
         return SkillGenerationResponse(skills=saved_skills)
 
     except ValueError as exc:
-        logger.warning("Skill generation failed validation: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=str(exc),
-        )
+        ) from exc
+
     except Exception as exc:
-        logger.exception("Unexpected error during skill generation: %s", exc)
+        logger.exception("Skill generation failed: %s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Skill generation failed due to an internal error.",
-        )
-
+        ) from exc
 
 @router.get(
     "",

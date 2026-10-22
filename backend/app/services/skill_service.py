@@ -5,12 +5,14 @@ from typing import Any
 from uuid import UUID
 
 import yaml
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.agents.policy_generation.skill_generation import generate_skills
 from app.common.logger import get_logger
 from app.config.settings import settings
-from app.models.skill_api import SkillDetailResponse, SkillVersionDetail, SlashCommandItem
+from app.models.skill_api import (
+    SkillDetailResponse,
+    SkillVersionDetail,
+    SlashCommandItem,
+)
 from app.models.skills import GeneratedSkillSet
 from app.repositories.skill_repository import (
     get_skill_by_id,
@@ -20,7 +22,11 @@ from app.repositories.skill_repository import (
     list_skills,
     save_skill_set,
 )
-from app.services.requirement_adapter import adapt_requirements, load_requirements_from_session
+from app.services.requirement_adapter import (
+    adapt_requirements,
+    load_single_requirement,
+)
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_logger(__name__)
 
@@ -107,42 +113,47 @@ async def get_slash_commands(
     return items
 
 
+
 async def generate_and_save_skills(
     session: AsyncSession,
     validated_requirements: dict | list | Any = None,
     session_id: str | None = None,
     source_requirement_version_id: str | None = None,
+    requirement_id: str | None = None,
 ) -> list[dict]:
-    """Generate draft skills and persist them with versioned Markdown files."""
+    """Generate skills from a requirement ID or supplied requirements."""
 
-    if session_id and not validated_requirements:
-        adapted, domain, orig_desc = await load_requirements_from_session(session, session_id)
-        source_version = source_requirement_version_id or session_id
+    if requirement_id:
+        adapted, domain, original_description = (
+            await load_single_requirement(
+                session=session,
+                requirement_id=requirement_id,
+            )
+        )
+        source_version = source_requirement_version_id
+
     elif validated_requirements:
         adapted = adapt_requirements(validated_requirements)
         source_version = source_requirement_version_id
+
     else:
-        raise ValueError("Either 'requirements' or 'session_id' must be provided.")
+        raise ValueError(
+            "Provide a requirement_id or a non-empty requirements list."
+        )
 
     logger.info(
-        "Starting skill generation for %d validated requirements (source_version=%s).",
+        "Starting skill generation for %d requirement(s).",
         len(adapted),
-        source_version,
     )
 
-    # 1. Generate skills using the agent.
     skill_set: GeneratedSkillSet = await generate_skills(adapted)
-    logger.info("Generated %d draft skills.", len(skill_set.skills))
 
-    # 2. Persist the complete generated set with provenance.
     saved_skills = await save_skill_set(
         session,
         skill_set,
         source_requirement_version_id=source_version,
     )
-    logger.info("Persisted %d draft skills.", len(saved_skills))
 
-    # 3. Return stable IDs, names, descriptions, and version IDs to the caller.
     return [
         {
             "skill_id": skill.id,
@@ -151,7 +162,8 @@ async def generate_and_save_skills(
             "version_id": skill.versions[0].id,
             "version": skill.versions[0].version,
             "status": skill.versions[0].status,
-            "source_requirement_version_id": skill.versions[0].source_requirement_version_id,
+            "source_requirement_version_id":
+                skill.versions[0].source_requirement_version_id,
         }
         for skill in saved_skills
     ]
