@@ -1,0 +1,39 @@
+# XYZ Corporation — Sample Company Policy
+
+**Document Type:** Sample HR Policy  
+**Version:** 1  
+**Status:** Sample — Not Approved  
+**Effective Date:** Not Applicable  
+**Purpose:** Testing document ingestion, section detection, chunk storage, and keyword search.
+
+## 1. Annual Leave Policy
+
+Employees may be eligible for annual leave according to the company's applicable leave policy. The actual leave entitlement, eligibility criteria, approval process, and carry-forward rules must be confirmed by the Human Resources department.
+
+## 2. Sick Leave Policy
+
+Employees who are unable to work due to illness should notify their manager according to the company's reporting procedure. Any medical documentation requirements and paid sick leave entitlements must be confirmed against an approved company policy.
+
+## 3. Leave Request and Approval
+
+Employees should submit leave requests through the designated company process. Managers or authorized approvers should review requests based on staffing requirements and applicable company rules.
+
+## 4. Working Hours and Attendance
+
+Employees are expected to follow their assigned working hours and attendance procedures. Rules for late arrival, overtime, remote work, and attendance corrections must be defined by the company.
+
+## 5. Employee Conduct
+
+Employees should behave professionally, treat colleagues respectfully, protect confidential information, and comply with applicable workplace policies.
+
+## 6. Information Security
+
+Employees should protect company information and use authorized systems for business activities. Access permissions, password requirements, data handling procedures, and incident reporting rules must be established by the company's approved security policy.
+
+## 7. Policy Review and Approval
+
+Company policies should be reviewed by the appropriate authorized personnel before implementation. This sample document is provided for technical testing only and must not be treated as an approved company policy.
+
+## 8. Disclaimer
+
+This document contains synthetic example content. It does not establish actual employee benefits, legal entitlements, company obligations, or approved operational rules. All policy details require verification and formal approval before use.
