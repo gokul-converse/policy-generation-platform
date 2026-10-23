@@ -1,12 +1,12 @@
+
 """Generate and revise enterprise policies using Microsoft Agent Framework and Agent Skills."""
 
 import json
 from pathlib import Path
 from typing import Any
 
+import yaml
 from agent_framework import Agent, SkillsProvider
-from pydantic import BaseModel, ConfigDict, Field
-
 from app.clients.foundry_client import get_foundry_client
 from app.common.logger import get_logger
 from app.config.settings import settings
@@ -15,59 +15,198 @@ from app.models.policy import PolicyDraft
 from app.models.policy_api import PolicySectionModel
 from app.models.requirements import RequirementAnalysis
 from app.models.skill_api import ValidatedRequirementInput
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = get_logger(__name__)
 
 
 class StructuredPolicyGenerationOutput(BaseModel):
-    """Structured output from the policy generation agent."""
+    """Structured output from the policy-generation agent."""
 
     model_config = ConfigDict(extra="forbid")
 
-    title: str = Field(min_length=1, description="Formal enterprise policy title.")
-    domain: str = Field(min_length=1, default="General", description="Policy domain classification (HR, IT, Finance, etc.).")
-    description: str | None = Field(default=None, description="Executive summary or description of the policy.")
-    sections: list[PolicySectionModel] = Field(min_length=1, description="Structured policy sections.")
-    unresolved_items: list[str] = Field(default_factory=list, description="Unresolved gaps or clarification items.")
+    title: str = Field(
+        min_length=1,
+        description="Formal enterprise policy title.",
+    )
+    domain: str = Field(
+        min_length=1,
+        default="General",
+        description="Policy domain classification (HR, IT, Finance, etc.).",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Executive summary or description of the policy.",
+    )
+    sections: list[PolicySectionModel] = Field(
+        min_length=1,
+        description="Structured policy sections.",
+    )
+    unresolved_items: list[str] = Field(
+        default_factory=list,
+        description="Unresolved gaps or clarification items.",
+    )
 
 
 ENTERPRISE_POLICY_INSTRUCTIONS = """
 You are an Enterprise Policy Drafting Agent.
 
-Your objective is to draft a comprehensive, authoritative, production-ready enterprise policy document
-grounded strictly in the validated requirements and guided by any applied Agent Skills.
+Your objective is to draft a comprehensive enterprise policy document
+grounded strictly in the validated requirements and guided by relevant
+Agent Skills.
 
-## Core Rules:
-1. Preserve every requirement ID, number, currency, unit of time, and condition exactly as given.
-2. Never invent business rules, monetary thresholds, approval hierarchies, or legal obligations.
-3. Every section that addresses a requirement MUST include that requirement ID in its `requirement_ids` array.
+## Core Rules
+
+1. Preserve every requirement ID, number, currency, unit of time,
+   date, and condition exactly as given.
+2. Never invent business rules, monetary thresholds, approval
+   hierarchies, or legal obligations.
+3. Every section that addresses a requirement MUST include that
+   requirement ID in its requirement_ids array.
 4. Organize the policy into standard enterprise sections:
-   - Purpose and Scope (e.g., section_id="purpose")
-   - Definitions and Applicability (e.g., section_id="definitions")
-   - Core Policy Rules (e.g., section_id="rules")
-   - Responsibilities and Administration (e.g., section_id="roles")
-   - Compliance, Violations, and Review (e.g., section_id="compliance")
-5. Never use placeholder tokens such as [TODO], [TBD], [INSERT], or [PLACEHOLDER]. If essential details
-   are missing from the requirements, record them explicitly in the `unresolved_items` list.
-6. The policy must read formally, professionally, and clearly.
+   - Purpose and Scope (section_id="purpose")
+   - Definitions and Applicability (section_id="definitions")
+   - Core Policy Rules (section_id="rules")
+   - Responsibilities and Administration (section_id="roles")
+   - Compliance, Violations, and Review (section_id="compliance")
+5. Never use placeholder tokens such as [TODO], [TBD], [INSERT],
+   or [PLACEHOLDER]. If essential details are missing, record them
+   in unresolved_items.
+6. Use relevant available Agent Skills when drafting the policy.
+   Follow their instructions when applicable to the requirements.
+   Do not invent skill guidance that is not present in the skill.
+7. Preserve all explicit requirement constraints even if a skill
+   suggests a generic alternative.
+8. The policy must read formally, professionally, and clearly.
 
 Return structured output matching StructuredPolicyGenerationOutput.
 """
 
+
 SECTION_REVISION_INSTRUCTIONS = """
 You are a Policy Revision Agent.
 
-Your objective is to revise a single section of an enterprise policy based on explicit user instructions.
+Your objective is to revise a single section of an enterprise policy
+based on explicit user instructions.
 
 Rules:
 1. Apply the user's modifications accurately.
-2. Do not remove or alter validated numeric values or units unless explicitly instructed.
+2. Do not remove or alter validated numeric values or units unless
+   explicitly instructed and consistent with the approved requirements.
 3. Preserve all existing requirement IDs mapped to this section.
-4. Maintain formal, executive enterprise policy tone.
-5. Do not introduce incomplete placeholders like [TODO] or [TBD].
+4. Maintain a formal enterprise policy tone.
+5. Do not introduce incomplete placeholders such as [TODO] or [TBD].
+6. Use relevant available Agent Skills when applicable.
+7. Never invent requirements or business rules.
 
 Return the revised section as a PolicySectionModel.
 """
+
+
+def create_policy_skills_provider(
+    selected_skill_ids: list[str] | None = None,
+) -> SkillsProvider:
+    """
+    Discover available skills or restrict discovery to explicit selections.
+
+    Built-in skills are identified by their frontmatter name or directory
+    name. Generated skills are identified by their database UUID directory.
+
+    An empty selection enables automatic discovery of all available skills.
+    """
+
+    backend_root = Path(settings.BACKEND_ROOT).resolve()
+    builtin_skills_root = backend_root / "skills"
+    generated_skills_root = settings.generated_skills_path
+
+    selected = {
+        identifier.strip().lstrip("/")
+        for identifier in (selected_skill_ids or [])
+        if isinstance(identifier, str) and identifier.strip()
+    }
+
+    # An empty selection means automatic discovery.
+    filter_selected = bool(selected)
+    skill_paths: list[Path] = []
+
+    # Discover built-in skills.
+    if builtin_skills_root.is_dir():
+        for skill_file in builtin_skills_root.glob("*/SKILL.md"):
+            if not skill_file.is_file():
+                continue
+
+            skill_dir = skill_file.parent
+
+            if filter_selected:
+                skill_name = skill_dir.name
+
+                try:
+                    content = skill_file.read_text(encoding="utf-8")
+
+                    if content.startswith("---"):
+                        parts = content.split("---", 2)
+
+                        if len(parts) >= 3:
+                            metadata = yaml.safe_load(parts[1]) or {}
+
+                            if isinstance(metadata, dict):
+                                skill_name = str(
+                                    metadata.get("name", skill_name)
+                                )
+
+                except (OSError, yaml.YAMLError):
+                    logger.warning(
+                        "Could not read skill metadata from %s.",
+                        skill_file,
+                    )
+                    continue
+
+                if (
+                    skill_name not in selected
+                    and skill_dir.name not in selected
+                ):
+                    continue
+
+            skill_paths.append(skill_dir)
+
+    # Generated skills use <skill_uuid>/vN/SKILL.md.
+    if generated_skills_root.is_dir():
+        for skill_file in generated_skills_root.glob("*/v*/SKILL.md"):
+            if not skill_file.is_file():
+                continue
+
+            skill_dir = skill_file.parent
+            skill_id = skill_dir.parent.name
+
+            if filter_selected and skill_id not in selected:
+                continue
+
+            skill_paths.append(skill_dir)
+
+    unique_paths = sorted(
+        {path.resolve() for path in skill_paths},
+        key=lambda path: str(path).lower(),
+    )
+
+    if filter_selected and not unique_paths:
+        raise ValueError(
+            "None of the selected skills could be resolved. "
+            f"Selected identifiers: {sorted(selected)}"
+        )
+
+    if not unique_paths:
+        logger.warning(
+            "No Agent Skills were discovered. Checked built-in path %s "
+            "and generated path %s.",
+            builtin_skills_root,
+            generated_skills_root,
+        )
+
+    return SkillsProvider.from_paths(
+        skill_paths=unique_paths,
+        disable_load_skill_approval=True,
+        disable_read_skill_resource_approval=True,
+    )
 
 
 async def generate_policy_from_requirements(
@@ -79,31 +218,48 @@ async def generate_policy_from_requirements(
     skill_instructions: str | None = None,
     client: Any = None,
 ) -> StructuredPolicyGenerationOutput:
-    """Draft an enterprise policy from validated requirements using the LLM agent."""
+    """Draft an enterprise policy from validated requirements."""
 
     llm_client = client or get_foundry_client()
 
-    # Normalize requirements for the prompt
-    norm_reqs = []
-    for r in requirements:
-        if isinstance(r, ValidatedRequirementInput):
-            norm_reqs.append(r.model_dump())
-        elif isinstance(r, dict):
-            norm_reqs.append(r)
-        elif hasattr(r, "model_dump"):
-            norm_reqs.append(r.model_dump())
+    norm_reqs: list[dict[str, Any]] = []
+
+    for requirement in requirements:
+        if isinstance(requirement, dict):
+            norm_reqs.append(requirement)
+        elif hasattr(requirement, "model_dump"):
+            norm_reqs.append(requirement.model_dump())
         else:
-            norm_reqs.append(dict(r))
+            norm_reqs.append(dict(requirement))
 
     system_instructions = ENTERPRISE_POLICY_INSTRUCTIONS
+
+    # Preserve explicit skill guidance for compatibility.
     if skill_instructions:
-        system_instructions += f"\n\n## Applied Agent Skill Guidance:\n{skill_instructions}"
+        system_instructions += (
+            "\n\n## Explicitly Applied Skill Guidance\n"
+            "Follow the following supplied guidance when applicable. "
+            "Validated requirements remain the source of truth.\n"
+            f"{skill_instructions}"
+        )
+
+    selected_skill_ids = [
+        item if isinstance(item, str) else str(item)
+        for item in (applied_skills or [])
+    ]
+
+    skills_provider = create_policy_skills_provider(
+        selected_skill_ids=selected_skill_ids,
+    )
 
     agent = Agent(
         client=llm_client,
         name="EnterprisePolicyGeneratorAgent",
         instructions=system_instructions,
-        default_options={"response_format": StructuredPolicyGenerationOutput},
+        context_providers=[skills_provider],
+        default_options={
+            "response_format": StructuredPolicyGenerationOutput,
+        },
     )
 
     prompt_data = {
@@ -111,25 +267,50 @@ async def generate_policy_from_requirements(
         "domain": domain or "General",
         "description": custom_description or "",
         "requirements": norm_reqs,
+        "applied_skills": applied_skills or [],
+        "skill_usage_instruction": (
+            "Use the explicitly selected skills when relevant. "
+            "Load their instructions through the available SkillsProvider. "
+            "If a selected skill cannot be loaded, do not pretend it was used. "
+            "Validated requirements always take precedence."
+        ),
     }
 
     prompt = (
-        "Generate a complete enterprise policy draft adhering strictly to these requirements:\n\n"
+        "Generate a complete enterprise policy draft adhering strictly "
+        "to the supplied validated requirements. Use the explicitly "
+        "selected Agent Skills when provided. Do not assume a skill applies "
+        "merely because it exists. Validated requirements take precedence.\n\n"
         + json.dumps(prompt_data, indent=2, ensure_ascii=False)
     )
 
     result = await agent.run(prompt)
 
     if getattr(result, "value", None) is not None:
-        policy_output = StructuredPolicyGenerationOutput.model_validate(result.value)
+        policy_output = StructuredPolicyGenerationOutput.model_validate(
+            result.value
+        )
     else:
-        policy_output = StructuredPolicyGenerationOutput.model_validate_json(result.text)
+        result_text = getattr(result, "text", None)
 
-    # Honor custom overrides if provided
+        if not result_text:
+            raise ValueError(
+                "Policy generation agent returned no structured output."
+            )
+
+        policy_output = (
+            StructuredPolicyGenerationOutput.model_validate_json(
+                result_text
+            )
+        )
+
+    # Honor custom overrides when provided.
     if custom_title:
         policy_output.title = custom_title
+
     if domain:
         policy_output.domain = domain
+
     if custom_description and not policy_output.description:
         policy_output.description = custom_description
 
@@ -140,40 +321,63 @@ async def revise_policy_section_agent(
     current_section: PolicySectionModel,
     user_instructions: str,
     all_requirements: list[ValidatedRequirementInput] | list[dict[str, Any]],
+    applied_skills: list[str] | None = None,
     client: Any = None,
 ) -> PolicySectionModel:
-    """Revise an existing policy section using the LLM according to user guidance."""
+    """Revise a policy section using the policy's selected skills."""
 
     llm_client = client or get_foundry_client()
+
+    skills_provider = create_policy_skills_provider(
+        selected_skill_ids=applied_skills or [],
+    )
 
     agent = Agent(
         client=llm_client,
         name="PolicySectionRevisionAgent",
         instructions=SECTION_REVISION_INSTRUCTIONS,
-        default_options={"response_format": PolicySectionModel},
+        context_providers=[skills_provider],
+        default_options={
+            "response_format": PolicySectionModel,
+        },
     )
+
+    normalized_requirements = [
+        requirement.model_dump()
+        if hasattr(requirement, "model_dump")
+        else requirement
+        for requirement in all_requirements
+    ]
 
     prompt_data = {
         "current_section": current_section.model_dump(),
         "revision_instructions": user_instructions,
-        "all_requirements": [
-            r.model_dump() if hasattr(r, "model_dump") else r
-            for r in all_requirements
-        ],
+        "all_requirements": normalized_requirements,
+        "applied_skills": applied_skills or [],
     }
 
     result = await agent.run(
-        "Revise this policy section in accordance with user instructions:\n\n"
+        "Revise this policy section according to the user's instructions. "
+        "Use the selected Agent Skills when relevant, preserve requirement "
+        "traceability, and do not invent rules.\n\n"
         + json.dumps(prompt_data, indent=2, ensure_ascii=False)
     )
 
     if getattr(result, "value", None) is not None:
         revised = PolicySectionModel.model_validate(result.value)
     else:
-        revised = PolicySectionModel.model_validate_json(result.text)
+        result_text = getattr(result, "text", None)
 
-    # Preserve section_id and ensure requirement IDs are not accidentally lost
+        if not result_text:
+            raise ValueError(
+                "Policy revision agent returned no structured output."
+            )
+
+        revised = PolicySectionModel.model_validate_json(result_text)
+
+    # Preserve section identity and requirement traceability.
     revised.section_id = current_section.section_id
+
     if not revised.requirement_ids:
         revised.requirement_ids = current_section.requirement_ids
 
@@ -195,31 +399,22 @@ Rules:
 2. Never invent business rules, approvals, eligibility conditions, or deadlines.
 3. Use the domain names from the supplied domain instructions.
 4. Never return blank, whitespace-only, or invented domain names.
-5. If the domain instructions contain no usable domains, report the issue
-   as an unresolved item instead of inventing a domain.
+5. If domain instructions contain no usable domains, report the issue as
+   an unresolved item instead of inventing a domain.
 6. Do not silently resolve conflicting requirements.
-7. Put genuinely missing decisions and unresolved conflicts in unresolved_items.
-8. Organize the requirements into clear policy sections.
-9. Do not add explanatory claims that are not supported by the input.
-10. Use relevant Agent Skills when drafting the policy.
+7. Put missing decisions and unresolved conflicts in unresolved_items.
+8. Organize requirements into clear policy sections.
+9. Do not add explanatory claims unsupported by the input.
+10. Use relevant available Agent Skills when drafting the policy.
 
 Return a structured response matching the PolicyDraft model.
 """
 
 
 def create_policy_generator() -> Agent:
-    """Create a policy agent with filesystem-based skills."""
+    """Create the legacy policy agent with built-in and generated skills."""
 
-    skills_root = Path(settings.generated_skills_dir).resolve()
-
-    if not skills_root.is_dir():
-        skills_root.mkdir(parents=True, exist_ok=True)
-
-    skills_provider = SkillsProvider.from_paths(
-        skill_paths=skills_root,
-        disable_load_skill_approval=True,
-        disable_read_skill_resource_approval=True,
-    )
+    skills_provider = create_policy_skills_provider()
 
     return Agent(
         client=get_foundry_client(),
@@ -263,9 +458,15 @@ async def generate_policy(
     if getattr(result, "value", None) is not None:
         policy = PolicyDraft.model_validate(result.value)
     else:
-        policy = PolicyDraft.model_validate_json(result.text)
+        result_text = getattr(result, "text", None)
 
-    expected_domains = list(dict.fromkeys(usable_domains))
-    policy.domains = expected_domains
+        if not result_text:
+            raise ValueError(
+                "Legacy policy generator returned no structured output."
+            )
+
+        policy = PolicyDraft.model_validate_json(result_text)
+
+    policy.domains = list(dict.fromkeys(usable_domains))
 
     return policy

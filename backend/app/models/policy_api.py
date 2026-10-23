@@ -1,12 +1,11 @@
 """Pydantic data models for policy generation, validation, review, and UI output."""
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
-
 from app.models.skill_api import ValidatedRequirementInput
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PolicySectionModel(BaseModel):
@@ -18,8 +17,14 @@ class PolicySectionModel(BaseModel):
         min_length=1,
         description="Stable section identifier (e.g. SEC-001 or purpose).",
     )
-    title: str = Field(min_length=1, description="Human-readable section title.")
-    content: str = Field(min_length=1, description="Substantive policy content.")
+    title: str = Field(
+        min_length=1,
+        description="Human-readable section title.",
+    )
+    content: str = Field(
+        min_length=1,
+        description="Substantive policy content.",
+    )
     requirement_ids: list[str] = Field(
         default_factory=list,
         description="Source requirement IDs mapped to this section.",
@@ -31,11 +36,18 @@ class ValidationFinding(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    rule_name: str = Field(description="Name of the validation check performed.")
-    status: Literal["PASS", "FAIL", "NEEDS_CLARIFICATION", "NOT_APPLICABLE"] = Field(
-        description="Outcome of this validation check."
+    rule_name: str = Field(
+        description="Name of the validation check performed."
     )
-    message: str = Field(description="Concise description of the finding.")
+    status: Literal[
+        "PASS",
+        "FAIL",
+        "NEEDS_CLARIFICATION",
+        "NOT_APPLICABLE",
+    ] = Field(description="Outcome of this validation check.")
+    message: str = Field(
+        description="Concise description of the finding."
+    )
     details: list[str] = Field(
         default_factory=list,
         description="Detailed items, diffs, or diagnostic messages.",
@@ -43,17 +55,21 @@ class ValidationFinding(BaseModel):
 
 
 class PolicyValidationReport(BaseModel):
-    """Comprehensive validation report for a generated or edited policy draft."""
+    """Comprehensive validation report for a policy draft."""
 
     model_config = ConfigDict(extra="forbid")
 
-    overall_status: Literal["PASS", "FAIL", "NEEDS_CLARIFICATION"] = Field(
-        description="Aggregate validation determination."
-    )
+    overall_status: Literal[
+        "PASS",
+        "FAIL",
+        "NEEDS_CLARIFICATION",
+    ] = Field(description="Aggregate validation determination.")
     coverage_score: float = Field(
         ge=0.0,
         le=1.0,
-        description="Proportion of source requirements fully addressed (0.0 to 1.0).",
+        description=(
+            "Proportion of source requirements fully addressed (0.0 to 1.0)."
+        ),
     )
     missing_requirements: list[str] = Field(
         default_factory=list,
@@ -65,61 +81,55 @@ class PolicyValidationReport(BaseModel):
     )
     clarification_items: list[str] = Field(
         default_factory=list,
-        description="Ambiguities or unresolved questions requiring human guidance.",
+        description=(
+            "Ambiguities or unresolved questions requiring human guidance."
+        ),
     )
 
 
 class PolicyGenerationRequest(BaseModel):
-    """Request payload for generating a new policy draft."""
+    """Request to generate a policy from a confirmed requirement or session."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
+    requirement_id: str | None = Field(
+        default=None,
+        description="Identifier of the confirmed requirement to use.",
+    )
     session_id: str | None = Field(
         default=None,
-        description="Session ID from conversational requirement gathering to automatically load requirements from database.",
+        description="Requirement-gathering session identifier.",
     )
-    requirements: list[ValidatedRequirementInput] | None = Field(
-        default=None,
-        description="Validated requirement objects (optional if session_id is provided).",
-    )
-    requirements_description: str | None = Field(
-        default=None,
-        description="Optional raw text policy request if starting directly from description.",
-    )
+    requirements: list[ValidatedRequirementInput] | None = None
+    requirements_description: str | None = None
+
     selected_skill_ids: list[UUID] = Field(
         default_factory=list,
-        description="IDs of reusable skills to apply during policy drafting.",
+        description="IDs of saved generated skills to apply.",
     )
     skill_command: str | None = Field(
         default=None,
-        description="Optional slash command trigger (e.g. /company-policy-generator or /annual-leave-rules).",
+        description="Optional slash command identifying a built-in or saved skill.",
     )
-    title: str | None = Field(
-        default=None,
-        description="Optional custom title for the policy.",
-    )
-    description: str | None = Field(
-        default=None,
-        description="Optional description or executive summary of the policy.",
-    )
-    domain: str | None = Field(
-        default=None,
-        description="Optional domain classification (e.g., HR, IT Security, Finance).",
-    )
-    source_requirement_version_id: str | None = Field(
-        default=None,
-        description="Authoritative requirement snapshot or version identifier.",
-    )
+
+    title: str | None = None
+    description: str | None = None
+    domain: str | None = None
+
+    source_requirement_version_id: str | None = None
 
 
 class PolicyModificationRequest(BaseModel):
-    """Request payload for editing or revising a policy section."""
+    """Request to edit or revise a policy section or policy content."""
 
     model_config = ConfigDict(extra="forbid")
 
     section_id: str | None = Field(
         default=None,
-        description="Specific section to regenerate or update. If omitted, applies to whole policy.",
+        description=(
+            "Section to revise. When omitted, the service must explicitly "
+            "handle a whole-policy modification."
+        ),
     )
     instructions: str = Field(
         min_length=1,
@@ -127,7 +137,7 @@ class PolicyModificationRequest(BaseModel):
     )
     updated_content: str | None = Field(
         default=None,
-        description="Direct user text replacement if provided.",
+        description="Direct text replacement for a selected section, if provided.",
     )
 
 
@@ -162,6 +172,6 @@ class PolicyResponse(BaseModel):
     change_summary: str | None = None
     policy_text_path: str | None = Field(
         default=None,
-        description="Relative path to generated data/policy.txt document.",
+        description="Relative path to the generated data/policy.txt document.",
     )
     created_at: datetime

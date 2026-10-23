@@ -1,9 +1,6 @@
-"""API routes for skill generation, management, and slash-command flow."""
+"""API routes for skill generation, management, and slash commands."""
 
 from uuid import UUID
-
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.common.logger import get_logger
 from app.db.session import get_db
@@ -14,6 +11,7 @@ from app.models.skill_api import (
     SkillVersionDetail,
     SlashCommandItem,
 )
+from app.repositories.skill_repository import get_skill_by_id
 from app.services.skill_service import (
     generate_and_save_skills,
     get_skill_detail,
@@ -21,6 +19,8 @@ from app.services.skill_service import (
     get_slash_commands,
     list_all_skills,
 )
+from fastapi import APIRouter, Depends, HTTPException, Path, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/skills", tags=["Skills"])
 logger = get_logger(__name__)
@@ -29,35 +29,69 @@ logger = get_logger(__name__)
 @router.get(
     "/slash-commands",
     response_model=list[SlashCommandItem],
-    summary="List available skills for the Claude-like slash-command (/) dropdown",
+    summary="List available skills for slash-command autocomplete",
+    description=(
+        "Returns built-in and persisted generated skills available "
+        "through the forward-slash command interface."
+    ),
 )
 async def list_slash_commands_endpoint(
     session: AsyncSession = Depends(get_db),
 ) -> list[SlashCommandItem]:
-    """Return all skills available for chat / forward-slash autocomplete."""
-    return await get_slash_commands(session)
+    """Return available skills for slash-command autocomplete."""
+    try:
+        return await get_slash_commands(session)
+    except Exception:
+        logger.exception("Failed to load slash commands.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not load available skills.",
+        ) from None
 
 
 @router.post(
     "/generate",
     response_model=SkillGenerationResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Generate skills from one confirmed requirement",
 )
 async def generate_skills_endpoint(
     request: SkillGenerationRequest,
     session: AsyncSession = Depends(get_db),
 ) -> SkillGenerationResponse:
-    """Generate skills from a single requirement ID."""
+    """Generate and persist skills from one requirement ID."""
+    requirement_id = request.requirement_id
+
+    if not requirement_id or not requirement_id.strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "This endpoint requires a single requirement_id. "
+                "Batch requirements are not supported by this route."
+            ),
+        )
+
+    if request.requirements:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "This endpoint accepts requirement_id only; "
+                "batch requirements are not supported."
+            ),
+        )
 
     logger.info(
-        "Received skill generation request (requirement_id=%s).",
-        request.requirement_id,
+        "Received skill generation request for requirement_id=%s.",
+        requirement_id,
     )
 
     try:
         saved_skills = await generate_and_save_skills(
             session=session,
-            requirement_id=request.requirement_id,
+            requirement_id=requirement_id,
+            source_requirement_version_id=(
+                request.source_requirement_version_id
+            ),
         )
 
         return SkillGenerationResponse(skills=saved_skills)
@@ -68,74 +102,155 @@ async def generate_skills_endpoint(
             detail=str(exc),
         ) from exc
 
-    except Exception as exc:
-        logger.exception("Skill generation failed: %s", exc)
+    except HTTPException:
+        raise
+
+    except Exception:
+        logger.exception(
+            "Skill generation failed for requirement_id=%s.",
+            requirement_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Skill generation failed due to an internal error.",
-        ) from exc
+        ) from None
+
 
 @router.get(
     "",
     response_model=list[SkillDetailResponse],
+    summary="List generated skills",
 )
 async def list_skills_endpoint(
     session: AsyncSession = Depends(get_db),
 ) -> list[SkillDetailResponse]:
-    """List all persisted skills and their versions."""
-    return await list_all_skills(session)
+    """List persisted skills and their version metadata."""
+    try:
+        return await list_all_skills(session)
+    except Exception:
+        logger.exception("Failed to list generated skills.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not retrieve skills.",
+        ) from None
 
 
 @router.get(
     "/{skill_id}",
     response_model=SkillDetailResponse,
+    summary="Get skill details",
 )
 async def get_skill_endpoint(
     skill_id: UUID,
     session: AsyncSession = Depends(get_db),
 ) -> SkillDetailResponse:
-    """Retrieve full details of a specific skill."""
-    skill = await get_skill_detail(session, skill_id)
-    if not skill:
+    """Retrieve details of a specific skill."""
+    try:
+        skill = await get_skill_detail(session, skill_id)
+    except Exception:
+        logger.exception("Failed to retrieve skill %s.", skill_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not retrieve the requested skill.",
+        ) from None
+
+    if skill is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Skill with ID {skill_id} not found.",
         )
+
     return skill
 
 
 @router.get(
     "/{skill_id}/versions",
     response_model=list[SkillVersionDetail],
+    summary="List skill versions",
 )
 async def get_skill_versions_endpoint(
     skill_id: UUID,
     session: AsyncSession = Depends(get_db),
 ) -> list[SkillVersionDetail]:
-    """Retrieve all versions of a specific skill."""
-    skill = await get_skill_detail(session, skill_id)
-    if not skill:
+    """Retrieve version metadata for a specific skill."""
+    try:
+        skill = await get_skill_by_id(session, skill_id)
+    except Exception:
+        logger.exception(
+            "Failed to retrieve versions for skill %s.",
+            skill_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not retrieve skill versions.",
+        ) from None
+
+    if skill is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Skill with ID {skill_id} not found.",
         )
-    return skill.versions
+
+    return [
+        SkillVersionDetail(
+            version_id=version.id,
+            skill_id=version.skill_id,
+            version=version.version,
+            file_path=version.file_path,
+            status=version.status,
+            created_at=version.created_at,
+            source_requirement_version_id=(
+                version.source_requirement_version_id
+            ),
+            content=None,
+        )
+        for version in sorted(
+            skill.versions,
+            key=lambda item: item.version,
+            reverse=True,
+        )
+    ]
 
 
 @router.get(
     "/{skill_id}/versions/{version}",
     response_model=SkillVersionDetail,
+    summary="Get a specific skill version",
 )
 async def get_skill_version_endpoint(
     skill_id: UUID,
-    version: int,
+    version: int = Path(ge=1),
     session: AsyncSession = Depends(get_db),
 ) -> SkillVersionDetail:
-    """Retrieve a specific version of a skill including file content."""
-    version_detail = await get_skill_version_detail(session, skill_id, version)
-    if not version_detail:
+    """Retrieve one skill version, including its Markdown content."""
+    try:
+        version_detail = await get_skill_version_detail(
+            session=session,
+            skill_id=skill_id,
+            version=version,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+    except Exception:
+        logger.exception(
+            "Failed to retrieve skill %s version %s.",
+            skill_id,
+            version,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not retrieve the requested skill version.",
+        ) from None
+
+    if version_detail is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Version {version} for skill ID {skill_id} not found.",
+            detail=(
+                f"Version {version} for skill ID {skill_id} not found."
+            ),
         )
+
     return version_detail

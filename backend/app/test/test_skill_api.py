@@ -62,13 +62,7 @@ async def test_skills_api_flow(tmp_path, monkeypatch, mock_generated_skill_set):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # 1. POST /skills/generate
         payload = {
-            "requirements": [
-                {
-                    "requirement_id": "REQ-001",
-                    "text": "Employees receive 20 days vacation per year.",
-                }
-            ],
-            "source_requirement_version_id": "SNAP-2026-V1",
+        "requirement_id": "REQ-001",
         }
         res = await client.post("/skills/generate", json=payload)
         assert res.status_code == 201, res.text
