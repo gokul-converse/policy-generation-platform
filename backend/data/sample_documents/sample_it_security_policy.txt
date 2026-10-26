@@ -1,0 +1,23 @@
+Document Status: Sample - Not Approved
+Domain: it_security
+
+1. USER ACCESS MANAGEMENT
+System access should be granted according to job responsibilities.
+
+2. AUTHENTICATION AND PASSWORDS
+Users must protect credentials and must not share passwords or tokens.
+
+3. DATA CLASSIFICATION
+Company information should be handled according to its sensitivity.
+
+4. SECURITY INCIDENT REPORTING
+Users should report suspected phishing, data loss, and unauthorized access.
+
+5. ACCESS REVIEW
+System owners should periodically review user permissions.
+
+6. BACKUP AND RECOVERY
+Critical business data should be backed up under approved procedures.
+
+7. POLICY REVIEW
+This is sample data. Actual security requirements require confirmation.

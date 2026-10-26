@@ -1,0 +1,46 @@
+
+# Sample Company HR Policy
+
+Document Status: Sample — Not Approved
+Department: Human Resources
+Version: 1.0
+
+## 1. Purpose
+This document provides a sample framework for employee leave management. It is intended for development and testing and is not an officially approved company policy.
+
+## 2. Eligibility
+HR must define eligibility for permanent, probationary, temporary, and contract employees. Minimum-service requirements remain unconfirmed.
+
+## 3. Leave Entitlement
+Annual leave, sick leave, casual leave, and other leave entitlements must be defined and approved by HR. Official leave quantities and accrual rules are not specified.
+
+## 4. Leave Application
+Employees should submit leave requests through the designated company process. Planned leave should be requested in advance where applicable. Emergency absences should be reported to the appropriate manager as soon as reasonably possible.
+
+## 5. Approval Workflow
+HR must confirm the approval sequence, manager responsibilities, approval timelines, and escalation procedures.
+
+## 6. Leave Balance and Carry-Forward
+HR must define leave-balance tracking, accrual calculations, unused leave handling, carry-forward limits, and expiry rules.
+
+## 7. Leave Encashment
+The organization must determine whether unused leave can be encashed, when encashment is permitted, and what limits apply. These rules remain pending approval.
+
+## 8. Compliance
+Applicable employment laws and statutory requirements must be reviewed by the responsible HR or legal team. Company-specific rules require formal approval before implementation.
+
+## 9. Responsibilities
+Employees must submit requests and communicate absences.
+Managers must review requests and coordinate team coverage.
+HR must maintain records and define approved leave rules.
+Payroll must apply approved leave-related adjustments where applicable.
+
+## 10. Pending HR Decisions
+- Employee eligibility and probation rules.
+- Annual leave entitlement and accrual.
+- Carry-forward limits and expiry.
+- Encashment eligibility and limits.
+- Approval workflow and turnaround times.
+- Emergency leave procedures.
+
+This sample document must not be treated as evidence of approved company policy. Unspecified values remain unresolved until formally confirmed.

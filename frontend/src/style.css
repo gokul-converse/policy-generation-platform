@@ -1,0 +1,56 @@
+* { box-sizing: border-box; }
+:root { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #22243a; background: #f4f5fb; font-synthesis: none; text-rendering: optimizeLegibility; }
+body { margin: 0; min-width: 320px; min-height: 100vh; }
+button, textarea { font: inherit; }
+button { cursor: pointer; }
+button:disabled, textarea:disabled { opacity: .6; cursor: not-allowed; }
+.page { min-height: 100vh; padding: 0 20px 24px; }
+.topbar { max-width: 900px; margin: 0 auto; height: 86px; display: flex; align-items: center; gap: 12px; }
+.logo { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 13px; color: white; background: #6558d3; font-weight: 800; font-size: 20px; }
+.topbar h1 { font-size: 17px; margin: 0 0 4px; }
+.topbar p { margin: 0; font-size: 12px; color: #85869a; }
+.status { display: flex; align-items: center; gap: 7px; margin-left: auto; font-size: 12px; color: #85869a; }
+.status span { width: 8px; height: 8px; background: #a1a4b3; border-radius: 50%; }
+.status.online span { background: #26ad78; }
+.new-button { border: 1px solid #dcddec; background: white; color: #44445b; border-radius: 9px; padding: 9px 12px; font-size: 12px; }
+.chat-card { width: min(900px,100%); height: calc(100vh - 135px); min-height: 500px; margin: 0 auto; display: flex; flex-direction: column; background: white; border: 1px solid #e6e7f0; border-radius: 17px; box-shadow: 0 12px 40px #2b28630b; overflow: hidden; }
+.chat-heading { padding: 18px 22px; border-bottom: 1px solid #eeeef5; }
+.chat-heading h2 { margin: 0 0 5px; font-size: 14px; }
+.chat-heading p { margin: 0; font-size: 11px; color: #9293a5; overflow-wrap: anywhere; }
+.messages { flex: 1; overflow-y: auto; padding: 22px; }
+.message-row { display: flex; margin: 0 0 15px; }
+.message-row.user { justify-content: flex-end; }
+.bubble { max-width: min(680px,85%); white-space: pre-wrap; overflow-wrap: anywhere; padding: 12px 14px; border-radius: 13px; background: #f0f1f8; color: #303147; font-size: 13px; line-height: 1.65; }
+.user .bubble { background: #6558d3; color: white; border-bottom-right-radius: 4px; }
+.assistant .bubble { border-bottom-left-radius: 4px; }
+.typing { color: #797a90; font-style: italic; }
+.version { display: block; margin-top: 8px; font-size: 10px; opacity: .8; overflow-wrap: anywhere; }
+.composer { margin: 0 18px; padding: 10px; display: flex; gap: 10px; align-items: flex-end; border: 1px solid #dfe0ec; border-radius: 13px; }
+.composer textarea { flex: 1; resize: vertical; min-height: 45px; max-height: 150px; border: 0; outline: none; padding: 7px; color: #303147; font-size: 13px; }
+.composer textarea::placeholder { color: #a0a1b2; }
+.composer button, .confirm-button { border: 0; background: #6558d3; color: white; border-radius: 9px; padding: 11px 16px; font-size: 12px; font-weight: 600; }
+.composer button:disabled, .confirm-button:disabled { background: #b9b5e8; }
+.hint { text-align: center; margin: 8px 0 14px; color: #a0a1b0; font-size: 10px; }
+.draft-card { margin: 0 18px 12px; padding: 16px; border: 1px solid #dedaf9; border-radius: 13px; background: #fbfaff; max-height: 42%; overflow-y: auto; }
+.draft-card h3 { margin: 0 0 5px; font-size: 14px; }
+.draft-note { color: #88889e; font-size: 11px; margin: 0 0 12px; }
+.draft-fields { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+.draft-field { padding: 10px; border: 1px solid #e8e6f5; border-radius: 8px; background: white; min-width: 0; }
+.draft-field strong { text-transform: capitalize; color: #6558d3; font-size: 10px; }
+.draft-field p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; line-height: 1.6; margin: 6px 0 0; }
+.draft-field:has(strong) { min-width: 0; }
+.confirm-button { margin-top: 12px; }
+.error { margin: 0 18px 10px; background: #fff0f0; border: 1px solid #ffd0d0; color: #a82c38; border-radius: 8px; padding: 10px 12px; font-size: 11px; }
+footer { text-align: center; color: #a1a2b1; font-size: 10px; padding-top: 14px; }
+@media (max-width: 600px) {
+  .page { padding: 0 10px 15px; }
+  .topbar { height: 75px; }
+  .topbar h1 { font-size: 14px; }
+  .status { font-size: 0; }
+  .new-button { padding: 8px; }
+  .chat-card { height: calc(100vh - 115px); min-height: 470px; border-radius: 12px; }
+  .messages { padding: 15px; }
+  .draft-fields { grid-template-columns: 1fr; }
+  .draft-card { max-height: 45%; margin-left: 10px; margin-right: 10px; }
+  .composer { margin-left: 10px; margin-right: 10px; }
+}
