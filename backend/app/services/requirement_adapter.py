@@ -4,7 +4,6 @@ import json
 import re
 from typing import Any
 
-from app.models.requirements import RequirementAnalysis
 from app.models.skill_api import ValidatedRequirementInput
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,36 +54,6 @@ def adapt_requirements(
 
     elif isinstance(raw_input, dict):
         items = raw_input.get("requirements", [])
-
-    elif isinstance(raw_input, RequirementAnalysis):
-        result: list[ValidatedRequirementInput] = []
-
-        for index, req_text in enumerate(raw_input.requirements, start=1):
-            if not isinstance(req_text, str) or not req_text.strip():
-                continue
-
-            text_value = req_text.strip()
-
-            result.append(
-                ValidatedRequirementInput(
-                    requirement_id=f"REQ-{index:03d}",
-                    text=text_value,
-                    category=(
-                        raw_input.identified_domains[0]
-                        if raw_input.identified_domains
-                        else None
-                    ),
-                    numeric_values=extract_numbers_and_units(text_value),
-                    status="validated",
-                )
-            )
-
-        if not result:
-            raise ValueError(
-                "RequirementAnalysis contained no valid requirements."
-            )
-
-        return result
 
     else:
         raise ValueError(
@@ -287,18 +256,26 @@ async def load_requirements_from_session(
     return adapted, domain, original_description
 
 
+
 async def load_single_requirement(
     session: AsyncSession,
     requirement_id: str,
+    session_id: str,
 ) -> tuple[
     list[ValidatedRequirementInput],
     str | None,
     str | None,
 ]:
-    """Load one approved requirement from a confirmed session."""
+    """Load one approved requirement from its specified session."""
 
-    if not requirement_id or not requirement_id.strip():
+    requirement_id = requirement_id.strip() if requirement_id else ""
+    session_id = session_id.strip() if session_id else ""
+
+    if not requirement_id:
         raise ValueError("A valid requirement_id is required.")
+
+    if not session_id:
+        raise ValueError("A valid session_id is required.")
 
     query = text(
         """
@@ -315,30 +292,34 @@ async def load_single_requirement(
         JOIN requirement_sessions AS s
             ON s.session_id = r.session_id
         WHERE r.requirement_id = :requirement_id
+          AND r.session_id = :session_id
         """
     )
 
     result = await session.execute(
         query,
-        {"requirement_id": requirement_id.strip()},
+        {
+            "requirement_id": requirement_id,
+            "session_id": session_id,
+        },
     )
     row = result.first()
 
     if row is None:
         raise ValueError(
-            f"Requirement {requirement_id!r} was not found."
+            "The requirement was not found in the specified session."
         )
 
     if row.session_status != "confirmed":
         raise ValueError(
-            f"Requirement session {row.session_id!r} is not confirmed. "
+            f"Session {session_id!r} is not confirmed. "
             f"Current status: {row.session_status!r}."
         )
 
     if row.requirement_status not in APPROVED_STATUSES:
         raise ValueError(
-            f"Requirement {requirement_id!r} is not approved for generation. "
-            f"Current status: {row.requirement_status!r}."
+            f"Requirement {requirement_id!r} is not approved for "
+            f"generation. Current status: {row.requirement_status!r}."
         )
 
     if not row.description or not row.description.strip():
@@ -352,13 +333,7 @@ async def load_single_requirement(
         category=row.topic or row.domain,
         numeric_values=extract_numbers_and_units(row.description),
         status=row.requirement_status,
-        metadata={
-            "session_id": str(row.session_id),
-        },
+        metadata={"session_id": str(row.session_id)},
     )
 
-    return (
-        [requirement],
-        row.domain,
-        row.original_description,
-    )
+    return [requirement], row.domain, row.original_description

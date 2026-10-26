@@ -4,12 +4,11 @@ import json
 import uuid
 from typing import Any
 
+from app.models.policy_api import PolicySectionModel, PolicyValidationReport
+from app.models.policy_db import Policy, PolicyVersion
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-
-from app.models.policy_api import PolicySectionModel, PolicyValidationReport
-from app.models.policy_db import Policy, PolicyVersion
 
 
 async def create_policy(
@@ -104,11 +103,6 @@ async def create_policy_version(
     await session.commit()
     await session.refresh(new_version)
 
-    # Invalidate cached versions relationship on parent policy
-    parent = await session.get(Policy, policy_id)
-    if parent:
-        session.expire(parent, ["versions"])
-
     return new_version
 
 
@@ -128,14 +122,30 @@ async def get_policy_by_id(
 
 async def list_policies(
     session: AsyncSession,
+    domain: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[Policy]:
-    """List all policies with versions ordered by created date."""
-    res = await session.execute(
+    """List policies with versions ordered by created date.
+
+    limit/offset apply to policies, not to their versions — every
+    returned policy still carries its full version history.
+    """
+    query = (
         select(Policy)
         .options(selectinload(Policy.versions))
         .order_by(Policy.created_at.desc())
         .execution_options(populate_existing=True)
+        .offset(offset)
     )
+
+    if domain is not None:
+        query = query.where(Policy.domain == domain)
+
+    if limit is not None:
+        query = query.limit(limit)
+
+    res = await session.execute(query)
     return list(res.scalars().all())
 
 

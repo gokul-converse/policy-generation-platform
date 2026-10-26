@@ -121,25 +121,26 @@ async def test_duplicate_skill_name_is_rejected(
 ):
     """Reject duplicate names within a generated set."""
 
-    skill_set = GeneratedSkillSet(
-        skills=[
-            GeneratedSkill(
-                name="annual-leave-policy",
-                description="First policy.",
-                instructions="First instructions.",
-                requirement_ids=["REQ-001"],
-            ),
-            GeneratedSkill(
-                name="annual-leave-policy",
-                description="Second policy.",
-                instructions="Second instructions.",
-                requirement_ids=["REQ-002"],
-            ),
-        ]
-    )
-
+    # GeneratedSkillSet itself now rejects duplicate names at construction
+    # time (stronger than the old repository-level check), so save_skill_set
+    # is never reached for this case.
     with pytest.raises(ValueError, match="unique"):
-        await save_skill_set(db_session, skill_set)
+        GeneratedSkillSet(
+            skills=[
+                GeneratedSkill(
+                    name="annual-leave-policy",
+                    description="First policy.",
+                    instructions="First instructions.",
+                    requirement_ids=["REQ-001"],
+                ),
+                GeneratedSkill(
+                    name="annual-leave-policy",
+                    description="Second policy.",
+                    instructions="Second instructions.",
+                    requirement_ids=["REQ-002"],
+                ),
+            ]
+        )
 
     result = await db_session.execute(select(Skill))
 

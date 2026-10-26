@@ -19,7 +19,7 @@ from app.services.skill_service import (
     get_slash_commands,
     list_all_skills,
 )
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/skills", tags=["Skills"])
@@ -59,36 +59,20 @@ async def generate_skills_endpoint(
     request: SkillGenerationRequest,
     session: AsyncSession = Depends(get_db),
 ) -> SkillGenerationResponse:
-    """Generate and persist skills from one requirement ID."""
-    requirement_id = request.requirement_id
-
-    if not requirement_id or not requirement_id.strip():
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "This endpoint requires a single requirement_id. "
-                "Batch requirements are not supported by this route."
-            ),
-        )
-
-    if request.requirements:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "This endpoint accepts requirement_id only; "
-                "batch requirements are not supported."
-            ),
-        )
+    """Generate skills from one requirement in a specified session."""
 
     logger.info(
-        "Received skill generation request for requirement_id=%s.",
-        requirement_id,
+        "Received skill generation request for requirement_id=%s, "
+        "session_id=%s.",
+        request.requirement_id,
+        request.session_id,
     )
 
     try:
         saved_skills = await generate_and_save_skills(
             session=session,
-            requirement_id=requirement_id,
+            requirement_id=request.requirement_id,
+            session_id=request.session_id,
             source_requirement_version_id=(
                 request.source_requirement_version_id
             ),
@@ -108,13 +92,12 @@ async def generate_skills_endpoint(
     except Exception:
         logger.exception(
             "Skill generation failed for requirement_id=%s.",
-            requirement_id,
+            request.requirement_id,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Skill generation failed due to an internal error.",
         ) from None
-
 
 @router.get(
     "",
@@ -123,10 +106,27 @@ async def generate_skills_endpoint(
 )
 async def list_skills_endpoint(
     session: AsyncSession = Depends(get_db),
+    limit: int = Query(
+    default=50,
+    ge=1,
+    le=200,
+    description=(
+        "Maximum number of skills to return. "
+        "Optional; defaults to 50. Allowed range: 1–200."
+    ),
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description=(
+            "Number of skills to skip before returning results. "
+            "Optional; defaults to 0."
+        ),
+    ),
 ) -> list[SkillDetailResponse]:
     """List persisted skills and their version metadata."""
     try:
-        return await list_all_skills(session)
+        return await list_all_skills(session, limit=limit, offset=offset)
     except Exception:
         logger.exception("Failed to list generated skills.")
         raise HTTPException(
@@ -219,7 +219,10 @@ async def get_skill_versions_endpoint(
 )
 async def get_skill_version_endpoint(
     skill_id: UUID,
-    version: int = Path(ge=1),
+    version: int = Path(
+    ge=1,
+    description="Positive, one-based skill version number.",
+    ),
     session: AsyncSession = Depends(get_db),
 ) -> SkillVersionDetail:
     """Retrieve one skill version, including its Markdown content."""

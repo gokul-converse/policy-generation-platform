@@ -20,10 +20,8 @@ from app.repositories.skill_repository import (
     list_skills,
     save_skill_set,
 )
-from app.services.requirement_adapter import (
-    adapt_requirements,
-    load_single_requirement,
-)
+from app.services.requirement_adapter import load_single_requirement
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_logger(__name__)
@@ -181,62 +179,41 @@ async def get_slash_commands(
     return items
 
 
+
 async def generate_and_save_skills(
     session: AsyncSession,
-    validated_requirements: dict | list | Any = None,
-    session_id: str | None = None,
+    session_id: str,
+    requirement_id: str,
     source_requirement_version_id: str | None = None,
-    requirement_id: str | None = None,
 ) -> list[dict]:
-    """Generate skills from one requirement ID or supplied validated requirements.
+    """Generate and save skills from one requirement in a session."""
 
-    When requirement_id is supplied, the requirement adapter loads that
-    individual requirement. Otherwise, supplied validated requirements
-    are adapted before being sent to the generation agent.
+    if not session_id or not session_id.strip():
+        raise ValueError("A valid session_id is required.")
 
-    source_requirement_version_id must refer to an actual requirement-version
-    identifier. A requirement ID or session ID is not substituted for it.
-    """
-    # Retained for compatibility with existing callers.
-    # The current single-requirement flow resolves its session through
-    # load_single_requirement().
-    _ = session_id
+    if not requirement_id or not requirement_id.strip():
+        raise ValueError("A valid requirement_id is required.")
 
-    if requirement_id:
-        adapted, domain, original_description = await load_single_requirement(
-            session=session,
-            requirement_id=requirement_id,
-        )
+    session_id = session_id.strip()
+    requirement_id = requirement_id.strip()
 
-        # Never assume a requirement ID is a version ID.
-        source_version = source_requirement_version_id
-
-        logger.info(
-            "Loaded requirements for skill generation; domain=%s.",
-            domain,
-        )
-
-        # Retained because the adapter returns it; the adapted requirements
-        # remain the input to the generation agent.
-        _ = original_description
-
-    elif validated_requirements:
-        adapted = adapt_requirements(validated_requirements)
-        source_version = source_requirement_version_id
-
-    else:
-        raise ValueError(
-            "Provide a requirement_id or a non-empty requirements list."
-        )
+    adapted, domain, original_description = await load_single_requirement(
+        session=session,
+        requirement_id=requirement_id,
+        session_id=session_id,
+    )
 
     if not adapted:
         raise ValueError(
-            "No valid requirements were provided for skill generation."
+            f"No valid requirement found for {requirement_id!r}."
         )
 
     logger.info(
-        "Starting skill generation for %d requirement(s).",
-        len(adapted),
+        "Generating skills for requirement_id=%s in session_id=%s; "
+        "domain=%s.",
+        requirement_id,
+        session_id,
+        domain,
     )
 
     skill_set: GeneratedSkillSet = await generate_skills(adapted)
@@ -244,7 +221,7 @@ async def generate_and_save_skills(
     saved_skills = await save_skill_set(
         session=session,
         skill_set=skill_set,
-        source_requirement_version_id=source_version,
+        source_requirement_version_id=source_requirement_version_id,
     )
 
     results: list[dict] = []
@@ -257,8 +234,6 @@ async def generate_and_save_skills(
             )
             continue
 
-        # Select the newest version explicitly rather than relying on
-        # SQLAlchemy relationship ordering.
         version = max(
             skill.versions,
             key=lambda item: item.version,
@@ -326,9 +301,11 @@ async def get_skill_detail(
 
 async def list_all_skills(
     session: AsyncSession,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[SkillDetailResponse]:
-    """Retrieve all skills and their version metadata."""
-    skills = await list_skills(session)
+    """Retrieve skills and their version metadata."""
+    skills = await list_skills(session, limit=limit, offset=offset)
     results: list[SkillDetailResponse] = []
 
     for skill in skills:

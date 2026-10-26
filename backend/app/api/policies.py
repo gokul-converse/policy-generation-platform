@@ -26,15 +26,17 @@ router = APIRouter(prefix="/policies", tags=["policies"])
     status_code=status.HTTP_201_CREATED,
     summary="Generate enterprise policy draft",
     description=(
-        "Generates a structured policy from validated requirements and "
-        "selected Agent Skills, validates the draft, and saves a version."
+        "Generates a policy from one specific confirmed requirement. "
+        "Provide both session_id and requirement_id. The backend loads "
+        "the requirement from the database, applies applicable skills, "
+        "validates the policy draft, and saves its initial version."
     ),
 )
 async def generate_policy_endpoint(
     request: PolicyGenerationRequest,
     session: AsyncSession = Depends(get_db),
 ) -> PolicyResponse:
-    """Generate and persist a new enterprise policy draft."""
+    """Generate and persist a policy from a selected requirement."""
 
     try:
         return await policy_service.generate_and_save_policy(
@@ -58,14 +60,40 @@ async def generate_policy_endpoint(
     "",
     response_model=list[PolicyResponse],
     summary="List all policies",
-    description="Returns all enterprise policies with their latest versions.",
+    description="Returns enterprise policies with their latest versions.",
 )
 async def list_policies_endpoint(
     session: AsyncSession = Depends(get_db),
+    domain: str | None = Query(
+        default=None,
+        description="Filter by policy domain, e.g. 'HR' or 'Finance'.",
+    ),
+    status: str | None = Query(
+        default=None,
+        pattern="^(draft|approved)$",
+        description="Filter by the latest version's status.",
+    ),
+    limit: int = Query(
+        default=50,
+        ge=1,
+        le=200,
+        description="Maximum number of policies to return.",
+    ),
+    offset: int = Query(
+        default=0,
+        ge=0,
+        description="Number of policies to skip, newest first.",
+    ),
 ) -> list[PolicyResponse]:
-    """Retrieve all enterprise policies."""
+    """Retrieve enterprise policies with optional filters and pagination."""
 
-    return await policy_service.list_all_policies(session)
+    return await policy_service.list_all_policies(
+        session,
+        domain=domain,
+        status=status,
+        limit=limit,
+        offset=offset,
+    )
 
 
 @router.get(
@@ -107,8 +135,9 @@ async def get_policy_endpoint(
     response_model=PolicyResponse,
     summary="Modify policy",
     description=(
-        "Edits policy content or revises a section, validates the result, "
-        "and creates a new policy version."
+        "Applies the supplied modification instructions to a policy, "
+        "validates the resulting content, and creates a new policy version. "
+        "A skill should receive a new version only when its own definition changes."
     ),
 )
 async def modify_policy_endpoint(
@@ -116,7 +145,7 @@ async def modify_policy_endpoint(
     request: PolicyModificationRequest,
     session: AsyncSession = Depends(get_db),
 ) -> PolicyResponse:
-    """Revise or directly edit policy content."""
+    """Revise policy content or directly edit a section."""
 
     try:
         return await policy_service.modify_policy_section(
@@ -229,7 +258,6 @@ async def approve_policy_version_endpoint(
             version=version,
         )
     except ValueError as exc:
-        # The service uses ValueError for a missing policy/version.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
@@ -259,7 +287,6 @@ async def get_policy_text_endpoint(
 ) -> str:
     """Return the requested policy's formatted text."""
 
-    # Verify that the requested policy exists before returning its text.
     policy = await policy_service.get_policy_detail(
         session=session,
         policy_id=policy_id,

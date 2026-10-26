@@ -1,6 +1,7 @@
 """Database operations for skills and their versions."""
 
 import logging
+import shutil
 import uuid
 from pathlib import Path
 
@@ -219,13 +220,25 @@ async def get_skill_by_name(
 
 async def list_skills(
     session: AsyncSession,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[Skill]:
-    """List all skills with versions, newest skills first."""
-    result = await session.execute(
+    """List skills with versions, newest skills first.
+
+    limit/offset apply to skills, not to their versions — every returned
+    skill still carries its full version history.
+    """
+    query = (
         select(Skill)
         .options(selectinload(Skill.versions))
         .order_by(Skill.created_at.desc())
+        .offset(offset)
     )
+
+    if limit is not None:
+        query = query.limit(limit)
+
+    result = await session.execute(query)
 
     skills = list(result.scalars().all())
 
@@ -266,3 +279,80 @@ async def get_skill_version(
     )
 
     return result.scalars().first()
+
+
+async def create_next_skill_version(
+    session: AsyncSession,
+    skill_id: uuid.UUID,
+) -> SkillVersion:
+    """Create a new draft version while preserving prior versions."""
+
+    result = await session.execute(
+        select(Skill)
+        .options(selectinload(Skill.versions))
+        .where(Skill.id == skill_id)
+    )
+    skill = result.scalar_one_or_none()
+
+    if skill is None or not skill.versions:
+        raise ValueError(
+            f"Skill {skill_id} not found or has no versions."
+        )
+
+    latest = max(skill.versions, key=lambda item: item.version)
+    next_version = latest.version + 1
+
+    skills_root = settings.generated_skills_path.resolve()
+    source = (skills_root / latest.file_path).resolve()
+
+    source.relative_to(skills_root)
+
+    if not source.is_file():
+        raise ValueError(
+            f"The existing skill file is missing: {latest.file_path}"
+        )
+
+    relative_path = (
+        Path(str(skill.id)) / f"v{next_version}" / "SKILL.md"
+    )
+    destination = (skills_root / relative_path).resolve()
+    destination.relative_to(skills_root)
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
+    # Exclusive creation prevents overwriting an existing version.
+    created_file = False
+
+    try:
+        with source.open("rb") as source_file:
+            with destination.open("xb") as destination_file:
+                created_file = True
+                shutil.copyfileobj(source_file, destination_file)
+
+        new_version = SkillVersion(
+            skill_id=skill.id,
+            version=next_version,
+            file_path=relative_path.as_posix(),
+            status="draft",
+            source_requirement_version_id=(
+                latest.source_requirement_version_id
+            ),
+        )
+
+        session.add(new_version)
+        await session.flush()
+
+        return new_version
+
+    except Exception:
+        if created_file:
+            try:
+                destination.resolve().relative_to(skills_root)
+                if destination.is_file():
+                    destination.unlink()
+            except (OSError, ValueError):
+                logger.exception(
+                    "Could not clean up failed skill version file: %s",
+                    destination,
+                )
+        raise

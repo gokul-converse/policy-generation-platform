@@ -87,36 +87,47 @@ class PolicyValidationReport(BaseModel):
     )
 
 
+
 class PolicyGenerationRequest(BaseModel):
-    """Request to generate a policy from a confirmed requirement or session."""
+    """Request to generate a policy from one confirmed requirement."""
 
     model_config = ConfigDict(extra="forbid")
 
-    requirement_id: str | None = Field(
-        default=None,
-        description="Identifier of the confirmed requirement to use.",
+    session_id: str = Field(
+        min_length=1,
+        description="ID of the confirmed requirement-gathering session.",
     )
-    session_id: str | None = Field(
-        default=None,
-        description="Requirement-gathering session identifier.",
+    requirement_id: str = Field(
+        min_length=1,
+        description="ID of the specific confirmed requirement to generate the policy from.",
     )
-    requirements: list[ValidatedRequirementInput] | None = None
-    requirements_description: str | None = None
 
     selected_skill_ids: list[UUID] = Field(
         default_factory=list,
-        description="IDs of saved generated skills to apply.",
+        description="IDs of saved skills to apply, if explicitly selected.",
     )
     skill_command: str | None = Field(
         default=None,
-        description="Optional slash command identifying a built-in or saved skill.",
+        description="Optional slash command identifying a skill to apply or modify.",
     )
 
-    title: str | None = None
-    description: str | None = None
-    domain: str | None = None
+    title: str | None = Field(
+        default=None,
+        description="Optional policy title; generated when omitted.",
+    )
+    description: str | None = Field(
+        default=None,
+        description="Optional policy description.",
+    )
+    domain: str | None = Field(
+        default=None,
+        description="Optional policy domain, such as HR or Finance.",
+    )
+    source_requirement_version_id: str | None = Field(
+        default=None,
+        description="Optional source requirement version identifier.",
+    )
 
-    source_requirement_version_id: str | None = None
 
 
 class PolicyModificationRequest(BaseModel):

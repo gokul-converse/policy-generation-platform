@@ -1,6 +1,8 @@
 
 """Tests for writing generated skills to Markdown files."""
 
+from uuid import uuid4
+
 import yaml
 
 from app.models.skills import GeneratedSkill
@@ -38,7 +40,7 @@ def test_write_skill_file_creates_valid_frontmatter(
 
     relative_path = write_skill_file(
         generated_skill=skill,
-        skill_id="test-skill-id",
+        skill_id=str(uuid4()),
         version=1,
     )
 

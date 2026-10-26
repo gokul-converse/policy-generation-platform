@@ -91,7 +91,7 @@ async def test_session_id_loads_requirements_automatically(tmp_path, monkeypatch
         # Seed conversational requirement gathering session
         await conn.execute(text("""
             INSERT INTO requirement_sessions (session_id, original_description, domain, status, created_at, updated_at)
-            VALUES ('SES-HR-777', 'Annual leave conversation with employee', 'Human Resources', 'completed', '2026-10-22', '2026-10-22');
+            VALUES ('SES-HR-777', 'Annual leave conversation with employee', 'hr', 'confirmed', '2026-10-22', '2026-10-22');
         """))
         await conn.execute(text("""
             INSERT INTO requirements (requirement_id, session_id, topic, description, status, created_at)

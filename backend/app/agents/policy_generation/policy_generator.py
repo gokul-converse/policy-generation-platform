@@ -1,4 +1,3 @@
-
 """Generate and revise enterprise policies using Microsoft Agent Framework and Agent Skills."""
 
 import json
@@ -13,8 +12,11 @@ from app.config.settings import settings
 from app.models.domain_instructions import DomainInstructionSet
 from app.models.policy import PolicyDraft
 from app.models.policy_api import PolicySectionModel
-from app.models.requirements import RequirementAnalysis
 from app.models.skill_api import ValidatedRequirementInput
+from app.prompts.policy import (
+    ENTERPRISE_POLICY_INSTRUCTIONS,
+    SECTION_REVISION_INSTRUCTIONS,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 logger = get_logger(__name__)
@@ -47,60 +49,6 @@ class StructuredPolicyGenerationOutput(BaseModel):
         description="Unresolved gaps or clarification items.",
     )
 
-
-ENTERPRISE_POLICY_INSTRUCTIONS = """
-You are an Enterprise Policy Drafting Agent.
-
-Your objective is to draft a comprehensive enterprise policy document
-grounded strictly in the validated requirements and guided by relevant
-Agent Skills.
-
-## Core Rules
-
-1. Preserve every requirement ID, number, currency, unit of time,
-   date, and condition exactly as given.
-2. Never invent business rules, monetary thresholds, approval
-   hierarchies, or legal obligations.
-3. Every section that addresses a requirement MUST include that
-   requirement ID in its requirement_ids array.
-4. Organize the policy into standard enterprise sections:
-   - Purpose and Scope (section_id="purpose")
-   - Definitions and Applicability (section_id="definitions")
-   - Core Policy Rules (section_id="rules")
-   - Responsibilities and Administration (section_id="roles")
-   - Compliance, Violations, and Review (section_id="compliance")
-5. Never use placeholder tokens such as [TODO], [TBD], [INSERT],
-   or [PLACEHOLDER]. If essential details are missing, record them
-   in unresolved_items.
-6. Use relevant available Agent Skills when drafting the policy.
-   Follow their instructions when applicable to the requirements.
-   Do not invent skill guidance that is not present in the skill.
-7. Preserve all explicit requirement constraints even if a skill
-   suggests a generic alternative.
-8. The policy must read formally, professionally, and clearly.
-
-Return structured output matching StructuredPolicyGenerationOutput.
-"""
-
-
-SECTION_REVISION_INSTRUCTIONS = """
-You are a Policy Revision Agent.
-
-Your objective is to revise a single section of an enterprise policy
-based on explicit user instructions.
-
-Rules:
-1. Apply the user's modifications accurately.
-2. Do not remove or alter validated numeric values or units unless
-   explicitly instructed and consistent with the approved requirements.
-3. Preserve all existing requirement IDs mapped to this section.
-4. Maintain a formal enterprise policy tone.
-5. Do not introduce incomplete placeholders such as [TODO] or [TBD].
-6. Use relevant available Agent Skills when applicable.
-7. Never invent requirements or business rules.
-
-Return the revised section as a PolicySectionModel.
-"""
 
 
 def create_policy_skills_provider(
@@ -243,10 +191,18 @@ async def generate_policy_from_requirements(
             f"{skill_instructions}"
         )
 
-    selected_skill_ids = [
-        item if isinstance(item, str) else str(item)
-        for item in (applied_skills or [])
-    ]
+    selected_skill_ids: list[str] = []
+    for item in (applied_skills or []):
+        if isinstance(item, str):
+            identifier = item.strip()
+        elif isinstance(item, dict):
+            identifier = str(
+                item.get("skill_id") or item.get("id") or item.get("name") or ""
+            ).strip()
+        else:
+            identifier = str(item).strip()
+        if identifier and identifier not in selected_skill_ids:
+            selected_skill_ids.append(identifier)
 
     skills_provider = create_policy_skills_provider(
         selected_skill_ids=selected_skill_ids,
@@ -303,6 +259,32 @@ async def generate_policy_from_requirements(
                 result_text
             )
         )
+
+    # Deterministic traceability check: the model may omit source IDs even
+    # when it has drafted content for those requirements. Do not silently
+    # claim complete coverage; report omissions for review.
+    source_ids = {
+        str(item.get("requirement_id", "")).strip()
+        for item in norm_reqs
+        if isinstance(item, dict) and str(item.get("requirement_id", "")).strip()
+    }
+    mapped_ids = {
+        requirement_id
+        for section in policy_output.sections
+        for requirement_id in section.requirement_ids
+    }
+    missing_ids = sorted(source_ids - mapped_ids)
+    unknown_ids = sorted(mapped_ids - source_ids) if source_ids else []
+    if missing_ids:
+        note = "Requirement IDs not mapped to any policy section: " + ", ".join(missing_ids)
+        if note not in policy_output.unresolved_items:
+            policy_output.unresolved_items.append(note)
+        logger.warning("Policy generation omitted requirement mappings: %s", missing_ids)
+    if unknown_ids:
+        note = "Policy sections reference IDs not present in the supplied requirements: " + ", ".join(unknown_ids)
+        if note not in policy_output.unresolved_items:
+            policy_output.unresolved_items.append(note)
+        logger.warning("Policy generation returned unknown requirement IDs: %s", unknown_ids)
 
     # Honor custom overrides when provided.
     if custom_title:
@@ -426,10 +408,15 @@ def create_policy_generator() -> Agent:
 
 
 async def generate_policy(
-    analysis: RequirementAnalysis,
+    analysis: Any,
     domain_instructions: DomainInstructionSet,
 ) -> PolicyDraft:
-    """Generate a policy using requirements, domains, and available skills."""
+    """Generate a legacy policy draft from a model-like input and domain instructions.
+
+    The input is accepted generically to avoid coupling this module to a
+    particular requirement-analysis model. The active API workflow should use
+    generate_policy_from_requirements with validated requirement records.
+    """
 
     usable_domains = [
         item.domain.strip()

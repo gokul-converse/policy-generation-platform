@@ -41,7 +41,7 @@ def test_numeric_preservation_failure():
         ]
     )
 
-    with pytest.raises(ValueError, match="failed numeric preservation|must include the original text"):
+    with pytest.raises(ValueError, match="must preserve the original text"):
         validate_generated_skill_set(
             skill_set,
             REQUIREMENTS,

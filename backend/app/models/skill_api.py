@@ -9,7 +9,6 @@ from pydantic import (
     ConfigDict,
     Field,
     field_validator,
-    model_validator,
 )
 
 APPROVED_REQUIREMENT_STATUSES = {"validated", "confirmed"}
@@ -94,88 +93,66 @@ class ValidatedRequirementInput(BaseModel):
         return normalized
 
 
+
+
+
+
 class SkillGenerationRequest(BaseModel):
-    """Request to generate skills from one requirement or supplied inputs."""
+    """Generate skills from one requirement within a specific session."""
 
-    model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
 
-    requirement_id: str | None = Field(
-        default=None,
+    session_id: str = Field(
+        ...,
+        min_length=1,
+        description="ID of the confirmed requirement session.",
+        examples=["SES-001"],
+    )
+
+    requirement_id: str = Field(
+        ...,
         min_length=1,
         max_length=100,
+        description="ID of the specific requirement within that session.",
+        examples=["REQ-001"],
     )
-
-    session_id: str | None = Field(
-        default=None,
-        min_length=1,
-    )
-
-    requirements: list[ValidatedRequirementInput] | None = None
 
     source_requirement_version_id: str | None = Field(
         default=None,
         min_length=1,
+        description=(
+            "Optional ID of the source requirement-version snapshot "
+            "used for traceability."
+        ),
     )
 
     @field_validator(
-        "requirement_id",
         "session_id",
+        "requirement_id",
         "source_requirement_version_id",
     )
     @classmethod
-    def reject_blank_optional_identifiers(
+    def validate_identifiers(
         cls,
         value: str | None,
     ) -> str | None:
-        """Reject whitespace-only identifiers and normalize their values."""
+        """Reject blank identifiers and normalize whitespace."""
+
         if value is None:
             return None
 
         value = value.strip()
+
         if not value:
-            raise ValueError("Identifier fields cannot be blank.")
+            raise ValueError("Identifier cannot be blank.")
 
         return value
 
-    @model_validator(mode="after")
-    def validate_generation_source(self) -> "SkillGenerationRequest":
-        """Require one unambiguous generation input."""
-        has_requirement_id = self.requirement_id is not None
-        has_requirements = bool(self.requirements)
 
-        if has_requirement_id and has_requirements:
-            raise ValueError(
-                "Provide requirement_id or requirements, not both."
-            )
 
-        if not has_requirement_id and not has_requirements:
-            raise ValueError(
-                "Provide requirement_id or a non-empty requirements list."
-            )
-
-        if self.requirements:
-            requirement_ids = [
-                item.requirement_id for item in self.requirements
-            ]
-
-            if len(requirement_ids) != len(set(requirement_ids)):
-                raise ValueError(
-                    "Requirement IDs must be unique within the request."
-                )
-
-            unapproved = [
-                item.requirement_id
-                for item in self.requirements
-                if item.status not in APPROVED_REQUIREMENT_STATUSES
-            ]
-
-            if unapproved:
-                raise ValueError(
-                    "Only validated or confirmed requirements can be used. "
-                    f"Unapproved requirement IDs: {unapproved}"
-                )
-
-        return self
 
 
 class GeneratedSkillResponse(BaseModel):
@@ -188,6 +165,8 @@ class GeneratedSkillResponse(BaseModel):
     version: int = Field(ge=1)
     status: str
     source_requirement_version_id: str | None = None
+
+
 
 
 class SkillGenerationResponse(BaseModel):
