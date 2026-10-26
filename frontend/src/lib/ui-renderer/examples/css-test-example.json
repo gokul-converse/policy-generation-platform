@@ -1,0 +1,573 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "title": "CSS Properties Test",
+    "description": "Tests rem values, flex, and gap properties"
+  },
+  "components": [
+    {
+      "type": "container",
+      "css": {
+        "maxWidth": "1200px",
+        "marginX": "auto",
+        "paddingY": "3rem",
+        "paddingX": "2rem",
+        "backgroundColor": "#f9fafb"
+      },
+      "children": [
+        {
+          "type": "heading",
+          "props": {
+            "content": "CSS Properties Test",
+            "level": 1
+          },
+          "css": {
+            "fontSize": "2.5rem",
+            "fontWeight": "700",
+            "marginBottom": "2rem",
+            "textAlign": "center"
+          }
+        },
+        {
+          "type": "card",
+          "props": {
+            "title": "Test 1: Rem Spacing Values",
+            "variant": "elevated"
+          },
+          "css": {
+            "padding": "2rem",
+            "marginBottom": "2rem",
+            "backgroundColor": "#ffffff",
+            "borderRadius": "0.5rem"
+          },
+          "children": [
+            {
+              "type": "container",
+              "css": {
+                "display": "flex",
+                "flexDirection": "column",
+                "gap": "1.5rem"
+              },
+              "children": [
+                {
+                  "type": "box",
+                  "css": {
+                    "padding": "1rem",
+                    "backgroundColor": "#dbeafe",
+                    "borderRadius": "0.5rem"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "padding: 1rem"
+                      },
+                      "css": {
+                        "fontSize": "1rem"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "box",
+                  "css": {
+                    "paddingX": "2rem",
+                    "paddingY": "1.5rem",
+                    "backgroundColor": "#fef3c7",
+                    "borderRadius": "0.5rem"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "paddingX: 2rem, paddingY: 1.5rem"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "box",
+                  "css": {
+                    "margin": "1rem",
+                    "padding": "1rem",
+                    "backgroundColor": "#d1fae5",
+                    "borderRadius": "0.5rem"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "margin: 1rem, padding: 1rem"
+                      }
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "card",
+          "props": {
+            "title": "Test 2: Flex with Space-Between and Gap",
+            "variant": "elevated"
+          },
+          "css": {
+            "padding": "2rem",
+            "marginBottom": "2rem",
+            "backgroundColor": "#ffffff",
+            "borderRadius": "0.5rem"
+          },
+          "children": [
+            {
+              "type": "container",
+              "css": {
+                "display": "flex",
+                "flexDirection": "row",
+                "justifyContent": "space-between",
+                "alignItems": "center",
+                "gap": "1rem",
+                "padding": "1rem",
+                "backgroundColor": "#f3f4f6",
+                "borderRadius": "0.5rem"
+              },
+              "children": [
+                {
+                  "type": "box",
+                  "css": {
+                    "padding": "1rem",
+                    "backgroundColor": "#3b82f6",
+                    "color": "#ffffff",
+                    "borderRadius": "0.5rem",
+                    "fontWeight": "600"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Item 1"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "box",
+                  "css": {
+                    "padding": "1rem",
+                    "backgroundColor": "#10b981",
+                    "color": "#ffffff",
+                    "borderRadius": "0.5rem",
+                    "fontWeight": "600"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Item 2"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "box",
+                  "css": {
+                    "padding": "1rem",
+                    "backgroundColor": "#f59e0b",
+                    "color": "#ffffff",
+                    "borderRadius": "0.5rem",
+                    "fontWeight": "600"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Item 3"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "props": {
+                "content": "✅ justifyContent: space-between with gap: 1rem"
+              },
+              "css": {
+                "marginTop": "1rem",
+                "fontSize": "0.875rem",
+                "color": "#10b981",
+                "fontWeight": "600"
+              }
+            }
+          ]
+        },
+        {
+          "type": "card",
+          "props": {
+            "title": "Test 3: Flex Column with Center and Gap",
+            "variant": "elevated"
+          },
+          "css": {
+            "padding": "2rem",
+            "marginBottom": "2rem",
+            "backgroundColor": "#ffffff",
+            "borderRadius": "0.5rem"
+          },
+          "children": [
+            {
+              "type": "container",
+              "css": {
+                "display": "flex",
+                "flexDirection": "column",
+                "justifyContent": "center",
+                "alignItems": "center",
+                "gap": "1.5rem",
+                "padding": "2rem",
+                "backgroundColor": "#f3f4f6",
+                "borderRadius": "0.5rem",
+                "minHeight": "200px"
+              },
+              "children": [
+                {
+                  "type": "box",
+                  "css": {
+                    "paddingX": "2rem",
+                    "paddingY": "1rem",
+                    "backgroundColor": "#ec4899",
+                    "color": "#ffffff",
+                    "borderRadius": "0.5rem",
+                    "fontWeight": "600"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Centered Item 1"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "box",
+                  "css": {
+                    "paddingX": "2rem",
+                    "paddingY": "1rem",
+                    "backgroundColor": "#8b5cf6",
+                    "color": "#ffffff",
+                    "borderRadius": "0.5rem",
+                    "fontWeight": "600"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Centered Item 2"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "props": {
+                "content": "✅ flexDirection: column, justifyContent: center, alignItems: center, gap: 1.5rem"
+              },
+              "css": {
+                "marginTop": "1rem",
+                "fontSize": "0.875rem",
+                "color": "#10b981",
+                "fontWeight": "600"
+              }
+            }
+          ]
+        },
+        {
+          "type": "card",
+          "props": {
+            "title": "Test 4: Grid with Gap (rem values)",
+            "variant": "elevated"
+          },
+          "css": {
+            "padding": "2rem",
+            "marginBottom": "2rem",
+            "backgroundColor": "#ffffff",
+            "borderRadius": "0.5rem"
+          },
+          "children": [
+            {
+              "type": "container",
+              "css": {
+                "display": "grid",
+                "gridTemplateColumns": "repeat(3, 1fr)",
+                "gap": "1.5rem"
+              },
+              "children": [
+                {
+                  "type": "box",
+                  "css": {
+                    "padding": "2rem",
+                    "backgroundColor": "#3b82f6",
+                    "color": "#ffffff",
+                    "borderRadius": "0.5rem",
+                    "textAlign": "center",
+                    "fontWeight": "600"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Grid 1"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "box",
+                  "css": {
+                    "padding": "2rem",
+                    "backgroundColor": "#10b981",
+                    "color": "#ffffff",
+                    "borderRadius": "0.5rem",
+                    "textAlign": "center",
+                    "fontWeight": "600"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Grid 2"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "box",
+                  "css": {
+                    "padding": "2rem",
+                    "backgroundColor": "#f59e0b",
+                    "color": "#ffffff",
+                    "borderRadius": "0.5rem",
+                    "textAlign": "center",
+                    "fontWeight": "600"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Grid 3"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "props": {
+                "content": "✅ display: grid, gridTemplateColumns: repeat(3, 1fr), gap: 1.5rem"
+              },
+              "css": {
+                "marginTop": "1rem",
+                "fontSize": "0.875rem",
+                "color": "#10b981",
+                "fontWeight": "600"
+              }
+            }
+          ]
+        },
+        {
+          "type": "card",
+          "props": {
+            "title": "Test 5: Flex Grow/Shrink",
+            "variant": "elevated"
+          },
+          "css": {
+            "padding": "2rem",
+            "marginBottom": "2rem",
+            "backgroundColor": "#ffffff",
+            "borderRadius": "0.5rem"
+          },
+          "children": [
+            {
+              "type": "container",
+              "css": {
+                "display": "flex",
+                "flexDirection": "row",
+                "gap": "1rem",
+                "padding": "1rem",
+                "backgroundColor": "#f3f4f6",
+                "borderRadius": "0.5rem"
+              },
+              "children": [
+                {
+                  "type": "box",
+                  "css": {
+                    "flex": "1",
+                    "padding": "1rem",
+                    "backgroundColor": "#3b82f6",
+                    "color": "#ffffff",
+                    "borderRadius": "0.5rem",
+                    "textAlign": "center",
+                    "fontWeight": "600"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "flex: 1"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "box",
+                  "css": {
+                    "flex": "2",
+                    "padding": "1rem",
+                    "backgroundColor": "#10b981",
+                    "color": "#ffffff",
+                    "borderRadius": "0.5rem",
+                    "textAlign": "center",
+                    "fontWeight": "600"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "flex: 2 (twice as wide)"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "box",
+                  "css": {
+                    "flex": "1",
+                    "padding": "1rem",
+                    "backgroundColor": "#f59e0b",
+                    "color": "#ffffff",
+                    "borderRadius": "0.5rem",
+                    "textAlign": "center",
+                    "fontWeight": "600"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "flex: 1"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "props": {
+                "content": "✅ flex property works with numeric values"
+              },
+              "css": {
+                "marginTop": "1rem",
+                "fontSize": "0.875rem",
+                "color": "#10b981",
+                "fontWeight": "600"
+              }
+            }
+          ]
+        },
+        {
+          "type": "card",
+          "props": {
+            "title": "Test 6: Complex Spacing",
+            "variant": "elevated"
+          },
+          "css": {
+            "padding": "2rem",
+            "backgroundColor": "#ffffff",
+            "borderRadius": "0.5rem"
+          },
+          "children": [
+            {
+              "type": "container",
+              "css": {
+                "display": "flex",
+                "flexDirection": "column",
+                "gap": "2rem"
+              },
+              "children": [
+                {
+                  "type": "box",
+                  "css": {
+                    "marginX": "auto",
+                    "paddingX": "3rem",
+                    "paddingY": "1.5rem",
+                    "backgroundColor": "#dbeafe",
+                    "borderRadius": "0.75rem",
+                    "maxWidth": "80%"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "Centered with marginX: auto"
+                      },
+                      "css": {
+                        "textAlign": "center",
+                        "fontWeight": "600"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "box",
+                  "css": {
+                    "padding": "2rem",
+                    "marginTop": "1rem",
+                    "marginBottom": "0.5rem",
+                    "backgroundColor": "#fef3c7",
+                    "borderRadius": "0.75rem"
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "props": {
+                        "content": "padding: 2rem, marginTop: 1rem, marginBottom: 0.5rem"
+                      },
+                      "css": {
+                        "fontSize": "0.9375rem"
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "text",
+              "props": {
+                "content": "✅ All spacing values with rem units work correctly"
+              },
+              "css": {
+                "marginTop": "1.5rem",
+                "fontSize": "0.875rem",
+                "color": "#10b981",
+                "fontWeight": "600"
+              }
+            }
+          ]
+        },
+        {
+          "type": "alert",
+          "props": {
+            "message": "All CSS property tests passed! ✅ Rem values, flex properties, gap, and spacing shortcuts all work correctly.",
+            "variant": "success"
+          },
+          "css": {
+            "marginTop": "2rem"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,175 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "title": "Dashboard UI Example",
+    "description": "A comprehensive dashboard with metrics, charts, and data tables",
+    "author": "JSON UI Renderer",
+    "createdAt": "2024-01-01"
+  },
+  "components": [
+    {
+      "type": "container",
+      "props": {
+        "maxWidth": "xl",
+        "centered": true,
+        "padding": 6
+      },
+      "children": [
+        {
+          "type": "stack",
+          "props": {
+            "direction": "vertical",
+            "gap": 6
+          },
+          "children": [
+            {
+              "type": "row",
+              "props": {
+                "justify": "between",
+                "align": "center"
+              },
+              "children": [
+                {
+                  "type": "heading",
+                  "props": {
+                    "content": "Analytics Dashboard",
+                    "level": 1
+                  }
+                },
+                {
+                  "type": "breadcrumb",
+                  "props": {
+                    "items": [
+                      { "label": "Home", "href": "/" },
+                      { "label": "Dashboard" }
+                    ]
+                  }
+                }
+              ]
+            },
+            {
+              "type": "metrics",
+              "props": {
+                "columns": 4,
+                "items": [
+                  {
+                    "label": "Total Users",
+                    "value": "12,345",
+                    "trend": "up",
+                    "trendValue": "12%"
+                  },
+                  {
+                    "label": "Revenue",
+                    "value": "$54,321",
+                    "trend": "up",
+                    "trendValue": "8%"
+                  },
+                  {
+                    "label": "Active Sessions",
+                    "value": "892",
+                    "trend": "down",
+                    "trendValue": "3%"
+                  },
+                  {
+                    "label": "Conversion Rate",
+                    "value": "3.2%",
+                    "trend": "neutral"
+                  }
+                ]
+              }
+            },
+            {
+              "type": "grid",
+              "props": {
+                "columns": 2,
+                "gap": 6
+              },
+              "children": [
+                {
+                  "type": "card",
+                  "props": {
+                    "title": "User Growth",
+                    "variant": "elevated"
+                  },
+                  "children": [
+                    {
+                      "type": "chart",
+                      "props": {
+                        "type": "line",
+                        "height": 250,
+                        "data": []
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "card",
+                  "props": {
+                    "title": "Revenue Distribution",
+                    "variant": "elevated"
+                  },
+                  "children": [
+                    {
+                      "type": "chart",
+                      "props": {
+                        "type": "pie",
+                        "height": 250,
+                        "data": []
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "card",
+              "props": {
+                "title": "Recent Transactions",
+                "subtitle": "Last 10 transactions"
+              },
+              "children": [
+                {
+                  "type": "table",
+                  "props": {
+                    "striped": true,
+                    "hoverable": true,
+                    "columns": [
+                      { "key": "id", "label": "ID", "width": "80px" },
+                      { "key": "user", "label": "User" },
+                      { "key": "amount", "label": "Amount", "align": "right" },
+                      { "key": "status", "label": "Status", "align": "center" },
+                      { "key": "date", "label": "Date" }
+                    ],
+                    "data": [
+                      {
+                        "id": "1001",
+                        "user": "John Doe",
+                        "amount": "$129.99",
+                        "status": "Completed",
+                        "date": "2024-01-15"
+                      },
+                      {
+                        "id": "1002",
+                        "user": "Jane Smith",
+                        "amount": "$79.50",
+                        "status": "Pending",
+                        "date": "2024-01-15"
+                      },
+                      {
+                        "id": "1003",
+                        "user": "Bob Johnson",
+                        "amount": "$199.00",
+                        "status": "Completed",
+                        "date": "2024-01-14"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
