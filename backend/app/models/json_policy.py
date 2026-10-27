@@ -1,4 +1,3 @@
-
 from pydantic import BaseModel, Field
 class UIGenerationRequest(BaseModel):
     policy_text: str = Field(
