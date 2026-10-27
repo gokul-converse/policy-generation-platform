@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
+  --font-mono: 'Fira Code', 'Courier New', monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* Document typography improvements */
+.policy-document {
+  font-feature-settings: 'liga' 1, 'kern' 1;
+  letter-spacing: -0.011em;
+}
+
+.policy-document h1,
+.policy-document h2,
+.policy-document h3,
+.policy-document h4 {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.policy-document p {
+  text-align: justify;
+  hyphens: auto;
+}
+
+/* Print-friendly styles */
+@media print {
+  .policy-document {
+    color: black;
+    background: white;
+  }
+  
+  button,
+  .no-print {
+    display: none !important;
+  }
+}

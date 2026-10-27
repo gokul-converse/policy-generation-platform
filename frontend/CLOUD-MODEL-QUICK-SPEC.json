@@ -1,0 +1,322 @@
+{
+  "schema_version": "1.0",
+  "description": "JSON UI Schema Specification for Cloud Models",
+  "required_structure": {
+    "version": "1.0 (required)",
+    "components": "array (required)",
+    "metadata": "object (optional)",
+    "actions": "array (optional)"
+  },
+  "component_structure": {
+    "type": "string (required)",
+    "props": "object (component-specific, optional)",
+    "css": "CSSProperties object (optional)",
+    "children": "array of components (optional)",
+    "key": "string (optional, for lists)"
+  },
+  "css_properties": {
+    "layout": ["display", "position", "top", "right", "bottom", "left", "zIndex"],
+    "flexbox": ["flexDirection", "flexWrap", "justifyContent", "alignItems", "alignContent", "flex", "flexGrow", "flexShrink", "flexBasis", "alignSelf", "order"],
+    "grid": ["gridTemplateColumns", "gridTemplateRows", "gridColumn", "gridRow", "gap", "rowGap", "columnGap", "gridAutoFlow", "gridAutoColumns", "gridAutoRows"],
+    "spacing": ["margin", "marginTop", "marginRight", "marginBottom", "marginLeft", "marginX", "marginY", "padding", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "paddingX", "paddingY"],
+    "sizing": ["width", "minWidth", "maxWidth", "height", "minHeight", "maxHeight"],
+    "typography": ["fontSize", "fontWeight", "fontFamily", "lineHeight", "letterSpacing", "textAlign", "textTransform", "textDecoration", "whiteSpace", "wordBreak"],
+    "colors": ["color", "backgroundColor", "opacity"],
+    "borders": ["border", "borderTop", "borderRight", "borderBottom", "borderLeft", "borderWidth", "borderStyle", "borderColor", "borderRadius", "borderTopLeftRadius", "borderTopRightRadius", "borderBottomLeftRadius", "borderBottomRightRadius"],
+    "effects": ["boxShadow", "textShadow", "background", "backgroundImage", "backgroundSize", "backgroundPosition", "backgroundRepeat"],
+    "overflow": ["overflow", "overflowX", "overflowY"],
+    "transform": ["transform", "transformOrigin", "transition", "animation"],
+    "interaction": ["cursor", "pointerEvents", "userSelect"],
+    "visibility": ["visibility"]
+  },
+  "component_types": [
+    "container",
+    "grid",
+    "row",
+    "column",
+    "stack",
+    "spacer",
+    "heading",
+    "text",
+    "paragraph",
+    "link",
+    "button",
+    "badge",
+    "alert",
+    "card",
+    "divider",
+    "image",
+    "form",
+    "input",
+    "textarea",
+    "select",
+    "checkbox",
+    "radio",
+    "switch",
+    "accordion",
+    "tabs",
+    "table",
+    "list",
+    "metrics",
+    "progress",
+    "chart",
+    "nav",
+    "breadcrumb",
+    "pagination"
+  ],
+  "required_props_by_component": {
+    "heading": ["content"],
+    "text": ["content"],
+    "button": ["label"],
+    "badge": ["label"],
+    "alert": ["message"],
+    "link": ["href", "content"],
+    "image": ["src", "alt"],
+    "input": ["name"],
+    "textarea": ["name"],
+    "select": ["name", "options"],
+    "checkbox": ["name", "label"],
+    "radio": ["name", "label", "value"],
+    "table": ["columns", "data"],
+    "accordion": ["items"],
+    "tabs": ["items"]
+  },
+  "common_prop_values": {
+    "variant": {
+      "button": ["primary", "secondary", "outline", "ghost", "danger"],
+      "badge": ["primary", "secondary", "success", "danger", "warning", "info", "default", "muted"],
+      "alert": ["info", "success", "warning", "error"],
+      "card": ["default", "bordered", "elevated"]
+    },
+    "size": ["xs", "sm", "md", "lg", "xl"],
+    "maxWidth": ["sm", "md", "lg", "xl", "full"],
+    "align": ["left", "center", "right", "justify"],
+    "justify": ["start", "center", "end", "between", "around"],
+    "direction": ["vertical", "horizontal"]
+  },
+  "action_types": [
+    "navigate",
+    "api",
+    "setState",
+    "submit",
+    "custom",
+    "log"
+  ],
+  "minimal_valid_example": {
+    "version": "1.0",
+    "components": [
+      {
+        "type": "heading",
+        "props": {
+          "content": "Hello World",
+          "level": 1
+        }
+      }
+    ]
+  },
+  "complete_example": {
+    "version": "1.0",
+    "metadata": {
+      "title": "Dashboard",
+      "description": "Main dashboard view"
+    },
+    "actions": [
+      {
+        "id": "saveData",
+        "type": "api",
+        "config": {
+          "endpoint": "/api/save",
+          "method": "POST"
+        }
+      }
+    ],
+    "components": [
+      {
+        "type": "container",
+        "props": {
+          "maxWidth": "lg",
+          "centered": true
+        },
+        "css": {
+          "padding": "2rem",
+          "backgroundColor": "#f9fafb"
+        },
+        "children": [
+          {
+            "type": "heading",
+            "props": {
+              "content": "Dashboard",
+              "level": 1
+            },
+            "css": {
+              "marginBottom": "1.5rem",
+              "fontSize": "2rem",
+              "fontWeight": "bold"
+            }
+          },
+          {
+            "type": "grid",
+            "props": {
+              "columns": 3,
+              "gap": 4
+            },
+            "css": {
+              "display": "grid",
+              "gridTemplateColumns": "repeat(3, 1fr)",
+              "gap": "1.5rem",
+              "marginBottom": "2rem"
+            },
+            "children": [
+              {
+                "type": "card",
+                "props": {
+                  "title": "Metric 1",
+                  "variant": "elevated"
+                },
+                "css": {
+                  "padding": "1.5rem",
+                  "borderRadius": "0.5rem",
+                  "boxShadow": "0 4px 6px rgba(0,0,0,0.1)",
+                  "transition": "all 0.3s ease"
+                },
+                "children": [
+                  {
+                    "type": "text",
+                    "props": {
+                      "content": "Value: 100",
+                      "size": "lg",
+                      "weight": "bold"
+                    },
+                    "css": {
+                      "fontSize": "1.5rem",
+                      "color": "#3b82f6"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "button",
+            "props": {
+              "label": "Save",
+              "variant": "primary",
+              "onClick": "saveData"
+            },
+            "css": {
+              "paddingX": "2rem",
+              "paddingY": "0.75rem",
+              "borderRadius": "0.5rem",
+              "cursor": "pointer",
+              "transition": "all 0.2s ease"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "validation_rules": {
+    "must_have": [
+      "version key with value '1.0'",
+      "components array (can be empty)",
+      "type key in every component",
+      "required props for each component type"
+    ],
+    "must_not": [
+      "use undefined component types",
+      "reference non-existent action IDs",
+      "omit required props",
+      "have circular nesting",
+      "include executable code"
+    ]
+  },
+  "common_patterns": {
+    "layout_container": {
+      "type": "container",
+      "props": {
+        "maxWidth": "lg",
+        "centered": true,
+        "padding": 8
+      },
+      "children": []
+    },
+    "responsive_grid": {
+      "type": "grid",
+      "props": {
+        "columns": 3,
+        "gap": 4
+      },
+      "children": []
+    },
+    "metric_card": {
+      "type": "card",
+      "props": {
+        "variant": "elevated"
+      },
+      "children": [
+        {
+          "type": "text",
+          "props": {
+            "content": "Label",
+            "variant": "caption",
+            "size": "sm"
+          }
+        },
+        {
+          "type": "heading",
+          "props": {
+            "content": "Value",
+            "level": 2
+          }
+        }
+      ]
+    },
+    "form_with_submit": {
+      "type": "form",
+      "props": {
+        "onSubmit": "submitForm"
+      },
+      "children": [
+        {
+          "type": "input",
+          "props": {
+            "name": "email",
+            "label": "Email",
+            "type": "email",
+            "required": true
+          }
+        },
+        {
+          "type": "button",
+          "props": {
+            "label": "Submit",
+            "variant": "primary"
+          }
+        }
+      ]
+    },
+    "data_table": {
+      "type": "table",
+      "props": {
+        "columns": [
+          {
+            "key": "name",
+            "label": "Name"
+          },
+          {
+            "key": "value",
+            "label": "Value"
+          }
+        ],
+        "data": [
+          {
+            "name": "Item 1",
+            "value": "100"
+          }
+        ],
+        "striped": true,
+        "hoverable": true
+      }
+    }
+  }
+}

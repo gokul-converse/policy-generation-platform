@@ -5,10 +5,6 @@ __pycache__/
 .coverage
 htmlcov/
 
-# Virtual environments
-.venv/
-venv/
-
 # Secrets and local configuration
 .env
 .env.*
@@ -29,3 +25,41 @@ generated_skills/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Virtual environments
+venv/
+.venv/
+
+# Logs
+*.log
+
+
+data/sample_documents
+data/enterprise_policy.db
+
+
+
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Environment variables
+.env
+.env.*
+!.env.example
+!backend/.env.example
+
+# Node dependencies
+node_modules/
+
+
+
+# Local databases and backups
+backend/data/*.db
+backend/data/*.db-*
+*.db
+*.db-*
+
+
