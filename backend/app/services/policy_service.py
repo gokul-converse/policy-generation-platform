@@ -343,11 +343,12 @@ def _build_policy_response(
 
 
 
+
 async def generate_and_save_policy(
     session: AsyncSession,
     request: PolicyGenerationRequest,
 ) -> PolicyResponse:
-    """Generate, validate, and persist an enterprise policy draft."""
+    """Generate, validate, and persist a policy using backend configuration."""
 
     # 1. Validate request identifiers.
     session_id = request.session_id.strip()
@@ -359,15 +360,13 @@ async def generate_and_save_policy(
     if not requirement_id:
         raise ValueError("'requirement_id' cannot be empty.")
 
-    # 2. Load the confirmed requirement from the existing database.
-    (
-        adapted_reqs,
-        requirement_domain,
-        original_description,
-    ) = await load_single_requirement(
-        session=session,
-        requirement_id=requirement_id,
-        session_id=session_id,
+    # 2. Load the confirmed requirement.
+    adapted_reqs, requirement_domain, original_description = (
+        await load_single_requirement(
+            session=session,
+            requirement_id=requirement_id,
+            session_id=session_id,
+        )
     )
 
     if not adapted_reqs:
@@ -376,30 +375,37 @@ async def generate_and_save_policy(
             f"in session_id='{session_id}'."
         )
 
-    # 3. Normalize optional request values.
-    requested_title = normalize_optional_text(request.title)
-    requested_domain = normalize_optional_text(request.domain)
-    requested_description = normalize_optional_text(request.description)
+    # 3. Configure policy metadata from the validated requirements.
+    # Do not require the client to provide title, domain, or description.
+    effective_title = derive_policy_title(adapted_reqs)
 
     policy_domain = (
-        requested_domain
-        or normalize_optional_text(requirement_domain)
-        or "General"
+        normalize_optional_text(requirement_domain)
+        or next(
+            (
+                value
+                for requirement in adapted_reqs
+                if (value := normalize_optional_text(
+                    getattr(requirement, "category", None)
+                ))
+                and value.casefold() not in {"general", "other", "unknown"}
+            ),
+            "General",
+        )
     )
 
-    policy_desc = (
-        requested_description
-        or normalize_optional_text(original_description)
-    )
+    policy_description = normalize_optional_text(original_description)
 
-    # Preserve the authoritative source reference.
-    # Prefer a real version ID when the caller supplies one; otherwise
-    # auto-resolve the confirmed requirement_versions snapshot for this
-    # session so later modification can resolve it on the first try.
-    # Falling back to the bare requirement_id here is what causes
-    # "authoritative requirements could not be loaded" during modify.
+    if not policy_description:
+        policy_description = (
+            "Enterprise policy generated from validated requirements."
+        )
+
+    # 4. Preserve or resolve the authoritative source version.
     source_version = (
-        normalize_optional_text(request.source_requirement_version_id)
+        normalize_optional_text(
+            request.source_requirement_version_id
+        )
         or await _resolve_confirmed_requirement_version_id(
             session=session,
             session_id=session_id,
@@ -407,29 +413,26 @@ async def generate_and_save_policy(
         or requirement_id
     )
 
-    # 4. Resolve explicitly selected skills.
+    # 5. Resolve the slash command through the existing skill loader.
+    # Skill IDs are now resolved internally rather than supplied by the client.
+    skill_command = normalize_optional_text(request.skill_command) or "/policy"
+
     skill_instructions, applied_identifiers = (
         await load_skill_instructions(
             session=session,
-            skill_command=request.skill_command,
-            skill_ids=request.selected_skill_ids,
+            skill_command=skill_command,
+            skill_ids=[],
         )
     )
 
-    # 5. Derive a title when the caller omits it or sends "string".
-    effective_title = (
-        requested_title
-        or derive_policy_title(adapted_reqs)
-    )
-
-    # 6. Generate the policy from the validated requirement.
+    # 6. Generate the policy.
     policy_output: StructuredPolicyGenerationOutput = (
         await generate_policy_from_requirements(
             requirements=adapted_reqs,
             applied_skills=applied_identifiers,
             custom_title=effective_title,
             domain=policy_domain,
-            custom_description=policy_desc,
+            custom_description=policy_description,
             skill_instructions=(
                 skill_instructions if skill_instructions else None
             ),
@@ -441,7 +444,7 @@ async def generate_and_save_policy(
             "The policy-generation agent returned no output."
         )
 
-    # 7. Reject placeholder or empty generated content.
+    # 7. Reject empty or placeholder output.
     reject_placeholder_policy_content(policy_output)
 
     generated_title = normalize_optional_text(policy_output.title)
@@ -450,19 +453,18 @@ async def generate_and_save_policy(
         policy_output.description
     )
 
-    # Do not persist placeholder metadata returned by the model.
     final_title = generated_title or effective_title
     final_domain = generated_domain or policy_domain
-    final_description = generated_description or policy_desc
+    final_description = generated_description or policy_description
 
-    # 8. Validate the generated policy against the source requirements.
+    # 8. Validate against the loaded requirements.
     validation_report = validate_policy_draft(
         sections=policy_output.sections,
         requirements=adapted_reqs,
         unresolved_items=policy_output.unresolved_items,
     )
 
-    # 9. Persist the policy and its first version.
+    # 9. Persist the policy and initial version.
     policy = await policy_repository.create_policy(
         session=session,
         title=final_title,
@@ -478,7 +480,7 @@ async def generate_and_save_policy(
         ),
     )
 
-    # 10. Format and save the text document.
+    # 10. Save the policy document and its versioned archive.
     text_content = format_policy_document_text(
         title=policy.title,
         domain=policy.domain,
@@ -501,7 +503,6 @@ async def generate_and_save_policy(
         v1_record,
         policy_text_path=saved_path,
     )
-
 
 
 
@@ -547,12 +548,14 @@ async def _resolve_confirmed_requirement_version_id(
     return None
 
 
+
+
 async def _load_requirements_for_policy_source(
     session: AsyncSession,
     source_reference: str | None,
     fallback_requirement_ids: list[str] | None = None,
 ) -> list[ValidatedRequirementInput]:
-    """Resolve an authoritative requirement version, requirement, or session."""
+    """Resolve authoritative requirements from a version, session, or requirement."""
 
     source_reference = normalize_optional_text(source_reference)
 
@@ -572,23 +575,141 @@ async def _load_requirements_for_policy_source(
             snapshot = result.mappings().first()
 
             if snapshot is not None:
-                if snapshot["validation_status"] not in {"valid", "confirmed"}:
+                validation_status = str(
+                    snapshot["validation_status"] or ""
+                ).strip().lower()
+
+                if validation_status not in {"valid", "confirmed"}:
                     raise ValueError(
-                        "The referenced requirement version is not validated "
-                        "or confirmed."
+                        "The referenced requirement version is not "
+                        "validated or confirmed."
                     )
 
-                payload = json.loads(snapshot["requirements_json"])
-
-                if isinstance(payload, dict):
-                    payload = payload.get("requirements", [])
-
-                if not isinstance(payload, list) or not payload:
+                try:
+                    payload = json.loads(snapshot["requirements_json"])
+                except (TypeError, json.JSONDecodeError) as exc:
                     raise ValueError(
-                        "The referenced requirement version contains no requirements."
+                        "The referenced requirement version contains "
+                        "invalid JSON."
+                    ) from exc
+
+                # Support a list, a wrapped list, or one requirement object.
+                if isinstance(payload, list):
+                    requirements_payload = payload
+
+                elif isinstance(payload, dict):
+                    nested = payload.get("requirements")
+
+                    if isinstance(nested, list):
+                        requirements_payload = nested
+
+                    elif any(
+                        key in payload
+                        for key in (
+                            "purpose",
+                            "scope",
+                            "rules",
+                            "policy_name",
+                        )
+                    ):
+                        requirements_payload = [payload]
+
+                    else:
+                        requirements_payload = []
+
+                else:
+                    requirements_payload = []
+
+                if not requirements_payload:
+                    raise ValueError(
+                        "The referenced requirement version contains "
+                        "no requirements."
                     )
 
-                return adapt_requirements(payload)
+                snapshot_session_id = normalize_optional_text(
+                    str(snapshot["session_id"])
+                    if snapshot["session_id"] is not None
+                    else None
+                )
+
+                if not snapshot_session_id:
+                    raise ValueError(
+                        "The requirement version has no associated session."
+                    )
+
+                # Resolve authoritative records using real IDs from the
+                # existing policy section mappings.
+                loaded_requirements: list[ValidatedRequirementInput] = []
+                seen_requirement_ids: set[str] = set()
+
+                for raw_requirement_id in dict.fromkeys(
+                    fallback_requirement_ids or []
+                ):
+                    requirement_id = normalize_optional_text(
+                        raw_requirement_id
+                    )
+                    if not requirement_id:
+                        continue
+
+                    result = await session.execute(
+                        text(
+                            """
+                            SELECT requirement_id
+                            FROM requirements
+                            WHERE requirement_id = :requirement_id
+                              AND session_id = :session_id
+                            """
+                        ),
+                        {
+                            "requirement_id": requirement_id,
+                            "session_id": snapshot_session_id,
+                        },
+                    )
+
+                    matched_id = result.scalar_one_or_none()
+                    if not matched_id:
+                        continue
+
+                    matched_id = str(matched_id)
+                    if matched_id in seen_requirement_ids:
+                        continue
+
+                    loaded, _, _ = await load_single_requirement(
+                        session=session,
+                        requirement_id=matched_id,
+                        session_id=snapshot_session_id,
+                    )
+
+                    for item in loaded:
+                        item_id = normalize_optional_text(
+                            str(item.requirement_id)
+                            if getattr(item, "requirement_id", None)
+                            else None
+                        )
+
+                        if item_id and item_id not in seen_requirement_ids:
+                            loaded_requirements.append(item)
+                            seen_requirement_ids.add(item_id)
+
+                if loaded_requirements:
+                    return loaded_requirements
+
+                # Direct snapshot adaptation is safe only when every
+                # object already contains a real requirement ID.
+                if all(
+                    isinstance(item, dict)
+                    and normalize_optional_text(item.get("requirement_id"))
+                    for item in requirements_payload
+                ):
+                    normalized = adapt_requirements(requirements_payload)
+                    if normalized:
+                        return normalized
+
+                raise ValueError(
+                    "The requirement version contains content, but its "
+                    "requirement IDs could not be resolved to validated "
+                    "records in the snapshot's session."
+                )
 
         except SQLAlchemyError:
             await session.rollback()
@@ -604,6 +725,9 @@ async def _load_requirements_for_policy_source(
                 return loaded
         except ValueError:
             pass
+        except SQLAlchemyError:
+            await session.rollback()
+            raise
 
         # 3. Resolve a requirement ID and its owning session.
         try:
@@ -634,10 +758,11 @@ async def _load_requirements_for_policy_source(
             await session.rollback()
             raise
 
-    # 4. Recover the source using requirement IDs already mapped
-    #    to the existing policy section, if the source field is missing.
-    for requirement_id in dict.fromkeys(fallback_requirement_ids or []):
-        requirement_id = requirement_id.strip()
+    # 4. Recover requirements using IDs mapped to existing policy sections.
+    for raw_requirement_id in dict.fromkeys(
+        fallback_requirement_ids or []
+    ):
+        requirement_id = normalize_optional_text(raw_requirement_id)
         if not requirement_id:
             continue
 

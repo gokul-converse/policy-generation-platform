@@ -88,45 +88,36 @@ class PolicyValidationReport(BaseModel):
 
 
 
-class PolicyGenerationRequest(BaseModel):
-    """Request to generate a policy from one confirmed requirement."""
 
-    model_config = ConfigDict(extra="forbid")
+class PolicyGenerationRequest(BaseModel):
+    """Request to generate a policy from confirmed requirements."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
 
     session_id: str = Field(
         min_length=1,
-        description="ID of the confirmed requirement-gathering session.",
+        description="ID of the requirement-gathering session.",
     )
+
     requirement_id: str = Field(
         min_length=1,
-        description="ID of the specific confirmed requirement to generate the policy from.",
+        description="ID of the requirement to generate the policy from.",
     )
 
-    selected_skill_ids: list[UUID] = Field(
-        default_factory=list,
-        description="IDs of saved skills to apply, if explicitly selected.",
-    )
-    skill_command: str | None = Field(
-        default=None,
-        description="Optional slash command identifying a skill to apply or modify.",
-    )
-
-    title: str | None = Field(
-        default=None,
-        description="Optional policy title; generated when omitted.",
-    )
-    description: str | None = Field(
-        default=None,
-        description="Optional policy description.",
-    )
-    domain: str | None = Field(
-        default=None,
-        description="Optional policy domain, such as HR or Finance.",
-    )
     source_requirement_version_id: str | None = Field(
         default=None,
-        description="Optional source requirement version identifier.",
+        description="Optional authoritative source requirement version ID.",
     )
+
+    skill_command: str = Field(
+        default="/policy",
+        min_length=1,
+        description="Slash command that selects the policy-generation workflow.",
+    )
+
 
 
 

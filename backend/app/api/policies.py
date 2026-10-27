@@ -55,7 +55,6 @@ async def generate_policy_endpoint(
             detail="Policy generation failed due to an internal server error.",
         ) from None
 
-
 @router.get(
     "",
     response_model=list[PolicyResponse],
