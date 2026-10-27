@@ -1,0 +1,97 @@
+================================================================================
+ENTERPRISE POLICY: SAMPLE LEAVE POLICY
+Domain: hr | Version: 1 | Status: DRAFT
+================================================================================
+
+## Executive Summary
+Executive summary: This policy defines annual leave, sick leave, and casual leave entitlements, observance of public holidays, eligibility by employment type and tenure, the process for submitting leave requests and obtaining manager approvals, carry-forward and encashment rules, procedures for emergency or unplanned absences, documentation requirements for extended sick leave, and the responsibilities of employees, managers, and HR. It applies to all employees across jurisdictions where local labor laws apply and aligns with applicable laws and exemptions.
+
+## Table of Contents
+1. Purpose and Scope
+2. Leave Entitlements by Employee Type and Pro-Rata
+3. Carry-Forward, Expiry, and Encashment
+4. Leave Request, Approval, and Escalation
+5. Emergency and Unplanned Absences
+6. Documentation for Extended Sick Leave
+7. Responsibilities
+8. Compliance and Jurisdictional Requirements
+
+--------------------------------------------------------------------------------
+Section 1: Purpose and Scope [SEC-001]
+--------------------------------------------------------------------------------
+Purpose: This policy defines annual leave, sick leave, casual leave, and public holiday observance, establishes eligibility criteria by employment type and tenure, and sets processes for leave requests and approvals, carry-forward and encashment rules, procedures for emergency or unplanned absences, and documentation requirements for extended sick leave, while delineating the responsibilities of employees, managers, and HR. 
+
+Scope: Applies to all employees (full-time, probationary, temporary/contract, part-time) across jurisdictions where local labor laws apply; covers annual, sick, and casual leaves, and public holidays; excludes unpaid leaves beyond policy and any exemptions defined by law.
+
+Traceable Requirements: d4ad4bc2-91b9-4289-9edb-a8fad9e5fdec
+
+--------------------------------------------------------------------------------
+Section 2: Leave Entitlements by Employee Type and Pro-Rata [SEC-002]
+--------------------------------------------------------------------------------
+Entitlements for permanent and probationary employees: 15 annual leave days, 12 sick leave days, and 12 casual leave days per year. 
+
+Temporary, Contract, and Part-time employees: entitlements are pro-rated based on actual hours worked relative to full-time hours, with minimum entitlements governed by applicable jurisdiction. 
+
+Pro-rata Calculation Method: based on actual hours worked relative to full-time hours. 
+
+Public holidays: entitlements and treatment across jurisdictions are defined by HR in accordance with local laws and observances.
+
+Traceable Requirements: d4ad4bc2-91b9-4289-9edb-a8fad9e5fdec
+
+--------------------------------------------------------------------------------
+Section 3: Carry-Forward, Expiry, and Encashment [SEC-003]
+--------------------------------------------------------------------------------
+Carry-forward: unused annual leave may be carried forward up to 30 days. 
+
+Carry-forward expiry: carried-forward leave expires after 12 months. 
+
+Encashment/forfeiture: the decision to encash or forfeit unused leave depends on leave type, company policy, and applicable labor laws.
+
+Traceable Requirements: d4ad4bc2-91b9-4289-9edb-a8fad9e5fdec
+
+--------------------------------------------------------------------------------
+Section 4: Leave Request, Approval, and Escalation [SEC-004]
+--------------------------------------------------------------------------------
+Leave requests must be submitted via the HR portal, specifying dates and leave type. 
+
+Approval timeline: managers must review and approve or reject requests within 2 business days. 
+
+Escalation: unresolved requests should be escalated to HR.
+
+Traceable Requirements: d4ad4bc2-91b9-4289-9edb-a8fad9e5fdec
+
+--------------------------------------------------------------------------------
+Section 5: Emergency and Unplanned Absences [SEC-005]
+--------------------------------------------------------------------------------
+Procedures for emergency or unplanned absences are defined in the policy, including notification expectations and any required documentation as determined by HR.
+
+Traceable Requirements: d4ad4bc2-91b9-4289-9edb-a8fad9e5fdec
+
+--------------------------------------------------------------------------------
+Section 6: Documentation for Extended Sick Leave [SEC-006]
+--------------------------------------------------------------------------------
+Documentation requirements for extended sick leave are specified in the policy.
+
+Traceable Requirements: d4ad4bc2-91b9-4289-9edb-a8fad9e5fdec
+
+--------------------------------------------------------------------------------
+Section 7: Responsibilities [SEC-007]
+--------------------------------------------------------------------------------
+Employees: submit leave requests through the HR portal; provide documentation for extended sick leave as required; comply with the policy. 
+
+Managers: review and decide on leave requests within 2 business days; provide timely feedback; escalate unresolved items to HR when necessary. 
+
+HR: maintain accurate leave records; ensure policy compliance with local laws; support escalation and resolution of unresolved requests; administer system access and overall leave process.
+
+Traceable Requirements: d4ad4bc2-91b9-4289-9edb-a8fad9e5fdec
+
+--------------------------------------------------------------------------------
+Section 8: Compliance and Jurisdictional Requirements [SEC-008]
+--------------------------------------------------------------------------------
+Compliance: Leave rules must comply with local laws and jurisdiction-specific requirements; HR to confirm jurisdictional specifics and exemptions before implementation.
+
+Traceable Requirements: d4ad4bc2-91b9-4289-9edb-a8fad9e5fdec
+
+================================================================================
+END OF POLICY DOCUMENT
+================================================================================

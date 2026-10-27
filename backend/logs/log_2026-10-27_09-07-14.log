@@ -1,0 +1,3 @@
+2026-10-27 09:07:16,557 | INFO | app.main | main.py:26 | FTS5 initialization completed.
+2026-10-27 09:16:45,665 | INFO | app.services.policy_service | policy_service.py:779 | Resolving requirements for policy_id=47bd9fbe-b2cd-4994-a443-33441196a7a1, version=3, source_reference=None
+2026-10-27 09:34:36,549 | INFO | app.main | main.py:33 | Database engine disposed.

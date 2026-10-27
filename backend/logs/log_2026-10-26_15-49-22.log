@@ -1,0 +1,8 @@
+2026-10-26 15:49:24,374 | INFO | app.main | main.py:26 | FTS5 initialization completed.
+2026-10-26 15:49:53,651 | ERROR | app.api.policies | policies.py:266 | Approval failed for policy f978ec9c-73c5-4c4a-8afe-4c40cf100b6e version 2.
+Traceback (most recent call last):
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\app\api\policies.py", line 255, in approve_policy_version_endpoint
+    return await policy_service.approve_policy_version(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: module 'app.services.policy_service' has no attribute 'approve_policy_version'
+2026-10-26 15:52:21,014 | INFO | app.main | main.py:33 | Database engine disposed.

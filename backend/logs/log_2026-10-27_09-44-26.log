@@ -1,0 +1,39 @@
+2026-10-27 09:44:28,093 | INFO | app.main | main.py:26 | FTS5 initialization completed.
+2026-10-27 09:44:43,772 | INFO | app.api.websocket | websocket.py:22 | Requirement WebSocket connection accepted.
+2026-10-27 09:44:43,780 | INFO | app.api.websocket | websocket.py:28 | Received requirement event: start
+2026-10-27 09:46:13,228 | INFO | httpx2 | _client.py:1923 | HTTP Request: POST https://convesesandbox.services.ai.azure.com/api/projects/SandboxProject/openai/v1/responses "HTTP/1.1 200 OK"
+2026-10-27 09:46:22,845 | INFO | httpx2 | _client.py:1923 | HTTP Request: POST https://convesesandbox.services.ai.azure.com/api/projects/SandboxProject/openai/v1/responses "HTTP/1.1 200 OK"
+2026-10-27 09:46:22,878 | INFO | app.api.websocket | websocket.py:34 | Requirement workflow completed. Event: clarification_question
+2026-10-27 09:47:38,601 | INFO | app.api.websocket | websocket.py:28 | Received requirement event: answer
+2026-10-27 09:48:02,088 | INFO | httpx2 | _client.py:1923 | HTTP Request: POST https://convesesandbox.services.ai.azure.com/api/projects/SandboxProject/openai/v1/responses "HTTP/1.1 200 OK"
+2026-10-27 09:48:13,446 | INFO | httpx2 | _client.py:1923 | HTTP Request: POST https://convesesandbox.services.ai.azure.com/api/projects/SandboxProject/openai/v1/responses "HTTP/1.1 200 OK"
+2026-10-27 09:48:13,486 | INFO | app.api.websocket | websocket.py:34 | Requirement workflow completed. Event: clarification_question
+2026-10-27 09:50:57,647 | INFO | app.api.websocket | websocket.py:28 | Received requirement event: answer
+2026-10-27 09:51:19,739 | INFO | httpx2 | _client.py:1923 | HTTP Request: POST https://convesesandbox.services.ai.azure.com/api/projects/SandboxProject/openai/v1/responses "HTTP/1.1 200 OK"
+2026-10-27 09:51:34,660 | INFO | httpx2 | _client.py:1923 | HTTP Request: POST https://convesesandbox.services.ai.azure.com/api/projects/SandboxProject/openai/v1/responses "HTTP/1.1 200 OK"
+2026-10-27 09:51:34,700 | INFO | app.api.websocket | websocket.py:34 | Requirement workflow completed. Event: clarification_question
+2026-10-27 09:53:04,982 | INFO | app.api.websocket | websocket.py:28 | Received requirement event: answer
+2026-10-27 09:53:24,644 | INFO | httpx2 | _client.py:1923 | HTTP Request: POST https://convesesandbox.services.ai.azure.com/api/projects/SandboxProject/openai/v1/responses "HTTP/1.1 200 OK"
+2026-10-27 09:53:36,062 | INFO | httpx2 | _client.py:1923 | HTTP Request: POST https://convesesandbox.services.ai.azure.com/api/projects/SandboxProject/openai/v1/responses "HTTP/1.1 200 OK"
+2026-10-27 09:53:36,091 | INFO | app.api.websocket | websocket.py:34 | Requirement workflow completed. Event: clarification_question
+2026-10-27 09:53:58,944 | INFO | app.api.websocket | websocket.py:28 | Received requirement event: answer
+2026-10-27 09:54:18,710 | INFO | httpx2 | _client.py:1923 | HTTP Request: POST https://convesesandbox.services.ai.azure.com/api/projects/SandboxProject/openai/v1/responses "HTTP/1.1 200 OK"
+2026-10-27 09:54:33,506 | INFO | httpx2 | _client.py:1923 | HTTP Request: POST https://convesesandbox.services.ai.azure.com/api/projects/SandboxProject/openai/v1/responses "HTTP/1.1 200 OK"
+2026-10-27 09:54:33,529 | WARNING | app.api.websocket | websocket.py:42 | Invalid WebSocket request: 1 validation error for ValidationResult
+draft.domain
+  Input should be 'hr', 'finance', 'it_security' or 'general' [type=literal_error, input_value='HR', input_type=str]
+    For further information visit https://errors.pydantic.dev/2.14/v/literal_error
+2026-10-27 09:55:12,287 | INFO | app.api.websocket | websocket.py:28 | Received requirement event: cancel
+2026-10-27 09:55:12,315 | INFO | app.api.websocket | websocket.py:34 | Requirement workflow completed. Event: conversation_cancelled
+2026-10-27 10:08:17,305 | ERROR | app.api.websocket | websocket.py:70 | Unexpected error in requirement WebSocket workflow.
+Traceback (most recent call last):
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\app\api\websocket.py", line 27, in requirement_websocket
+    payload = await websocket.receive_json()
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\starlette\websockets.py", line 142, in receive_json
+    self._raise_on_disconnect(message)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\starlette\websockets.py", line 120, in _raise_on_disconnect
+    raise WebSocketDisconnect(message["code"], message.get("reason"))
+starlette.websockets.WebSocketDisconnect: (1012, None)
+2026-10-27 10:08:17,310 | INFO | app.api.websocket | websocket.py:85 | Requirement WebSocket client disconnected.
+2026-10-27 10:08:17,412 | INFO | app.main | main.py:33 | Database engine disposed.

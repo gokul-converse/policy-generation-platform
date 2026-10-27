@@ -1,0 +1,99 @@
+2026-10-27 05:39:42,240 | ERROR | app.main | main.py:29 | Application startup or runtime lifecycle failed.
+Traceback (most recent call last):
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1163, in _commit_impl
+    self.engine.dialect.do_commit(self.connection)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 954, in do_commit
+    dbapi_connection.commit()
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 209, in commit
+    super().commit()
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 424, in commit
+    self._handle_exception(error)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 237, in _handle_exception_no_connection
+    super()._handle_exception_no_connection(dbapi, error)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 409, in _handle_exception_no_connection
+    raise error.with_traceback(exc_info[2])
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 422, in commit
+    await_(self._connection.commit())
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 167, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 205, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\aiosqlite\core.py", line 193, in commit
+    await self._execute(self._conn.commit)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\aiosqlite\core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\aiosqlite\core.py", line 63, in _connection_worker_thread
+    result = function()
+             ^^^^^^^^^^
+sqlite3.OperationalError: database is locked
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\app\main.py", line 25, in lifespan
+    await initialize_fts()
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\app\db\session.py", line 62, in initialize_fts
+    async with engine.begin() as connection:
+  File "C:\Users\Converse\AppData\Local\Programs\Python\Python312\Lib\contextlib.py", line 217, in __aexit__
+    await anext(self.gen)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py", line 1087, in begin
+    async with conn.begin():
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\ext\asyncio\engine.py", line 1438, in __aexit__
+    await greenlet_spawn(self._proxied.__exit__, type_, value, traceback)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 210, in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\engine\util.py", line 144, in __exit__
+    with util.safe_reraise():
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 166, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\engine\util.py", line 142, in __exit__
+    self.commit()
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2612, in commit
+    self._do_commit()
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2717, in _do_commit
+    self._connection_commit_impl()
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2688, in _connection_commit_impl
+    self.connection._commit_impl()
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1165, in _commit_impl
+    self._handle_dbapi_exception(e, None, None, None, None)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2335, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1163, in _commit_impl
+    self.engine.dialect.do_commit(self.connection)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\engine\default.py", line 954, in do_commit
+    dbapi_connection.commit()
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 209, in commit
+    super().commit()
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 424, in commit
+    self._handle_exception(error)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 412, in _handle_exception
+    self._handle_exception_no_connection(self.dbapi, error)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 237, in _handle_exception_no_connection
+    super()._handle_exception_no_connection(dbapi, error)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 409, in _handle_exception_no_connection
+    raise error.with_traceback(exc_info[2])
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\connectors\asyncio.py", line 422, in commit
+    await_(self._connection.commit())
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 167, in await_
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return]
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\sqlalchemy\util\concurrency.py", line 205, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\aiosqlite\core.py", line 193, in commit
+    await self._execute(self._conn.commit)
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\aiosqlite\core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\venv\Lib\site-packages\aiosqlite\core.py", line 63, in _connection_worker_thread
+    result = function()
+             ^^^^^^^^^^
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) database is locked
+(Background on this error at: https://sqlalche.me/e/21/e3q8)
+2026-10-27 05:39:42,256 | INFO | app.main | main.py:33 | Database engine disposed.

@@ -1,0 +1,2 @@
+2026-10-27 11:54:37,481 | INFO | app.main | main.py:26 | FTS5 initialization completed.
+2026-10-27 11:58:12,741 | INFO | app.main | main.py:33 | Database engine disposed.

@@ -1,0 +1,2 @@
+2026-10-27 06:33:55,798 | INFO | app.main | main.py:26 | FTS5 initialization completed.
+2026-10-27 06:34:41,023 | INFO | app.services.policy_service | policy_service.py:779 | Resolving requirements for policy_id=47bd9fbe-b2cd-4994-a443-33441196a7a1, version=3, source_reference=None

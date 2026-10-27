@@ -1,0 +1,9 @@
+2026-10-27 12:33:24,554 | INFO | app.main | main.py:26 | FTS5 initialization completed.
+2026-10-27 12:33:28,665 | INFO | agent_framework._skills | _skills.py:3225 | Discovered 1 potential skills
+2026-10-27 12:33:28,665 | WARNING | agent_framework._skills | _skills.py:3811 | SKILL.md at 'C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\generated_skills\8b55a3e4-387c-42fb-8908-7503a319f714\v1\SKILL.md' has an invalid metadata value for 'requirement_ids'; expected a text scalar; skipping entry
+2026-10-27 12:33:28,665 | ERROR | agent_framework._skills | _skills.py:3972 | SKILL.md at 'C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\generated_skills\8b55a3e4-387c-42fb-8908-7503a319f714\v1\SKILL.md' has frontmatter name 'it-security-policy-drafting' that does not match the directory name 'v1'; skipping.
+2026-10-27 12:33:28,665 | INFO | agent_framework._skills | _skills.py:3274 | Successfully loaded 0 skills
+2026-10-27 12:33:39,554 | INFO | httpx2 | _client.py:1923 | HTTP Request: POST https://convesesandbox.services.ai.azure.com/api/projects/SandboxProject/openai/v1/responses "HTTP/1.1 200 OK"
+2026-10-27 12:33:39,676 | INFO | app.services.policy_service | policy_service.py:225 | Saved policy to C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\data\policy.txt and C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\data\policies\af60537b-e54e-42e6-a97e-ed88a1186c1d_v2.txt
+2026-10-27 12:42:11,855 | INFO | app.services.policy_service | policy_service.py:225 | Saved policy to C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\data\policy.txt and C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\data\policies\af60537b-e54e-42e6-a97e-ed88a1186c1d_v2.txt
+2026-10-27 12:59:41,232 | INFO | app.main | main.py:33 | Database engine disposed.

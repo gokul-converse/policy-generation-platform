@@ -1,0 +1,14 @@
+2026-10-27 05:43:29,640 | INFO | app.main | main.py:26 | FTS5 initialization completed.
+2026-10-27 05:44:27,924 | ERROR | app.api.policies | policies.py:162 | Policy modification failed for policy 47bd9fbe-b2cd-4994-a443-33441196a7a1.
+Traceback (most recent call last):
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\app\api\policies.py", line 151, in modify_policy_endpoint
+    return await policy_service.modify_policy_section(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\app\services\policy_service.py", line 781, in modify_policy_section
+    revised_section = await revise_policy_section_agent(
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\app\agents\policy_generation\policy_generator.py", line 317, in revise_policy_section_agent
+    skill["skill_id"]
+    ~~~~~^^^^^^^^^^^^
+TypeError: string indices must be integers, not 'str'
+2026-10-27 05:45:42,137 | INFO | app.main | main.py:33 | Database engine disposed.

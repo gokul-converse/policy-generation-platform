@@ -1,0 +1,3 @@
+2026-10-26 15:52:23,472 | INFO | app.main | main.py:26 | FTS5 initialization completed.
+2026-10-26 15:52:33,838 | INFO | app.services.policy_service | policy_service.py:125 | Saved policy to C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\data\policy.txt and C:\Users\Converse\OneDrive - CONVERSE Data Solutions\Policy_Generation\backend\data\policies\f978ec9c-73c5-4c4a-8afe-4c40cf100b6e_v2.txt
+2026-10-26 16:54:48,380 | INFO | app.main | main.py:33 | Database engine disposed.
