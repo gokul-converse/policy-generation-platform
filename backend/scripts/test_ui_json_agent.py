@@ -8,59 +8,58 @@ async def main():
     agent = get_ui_json_agent()
 
     sample_policy = """
-    Employee Annual Leave Policy
+    ENTERPRISE POLICY: ENTERPRISE POLICY
+Domain: hr | Version: 1 | Status: DRAFT
+================================================================================
  
-Purpose:
-To outline the annual leave entitlement and procedure for employees, ensuring that all employees receive a fair and consistent 
-amount of leave, while also ensuring that business needs are met.
+## Executive Summary
+Employees receive 20 days of annual leave per year, and leave requests must be submitted at least 5 days before the leave starts.
  
-Scope:
-This policy applies to all employees of [Company Name].
+## Table of Contents
+1. Purpose and Scope
+2. Definitions and Applicability
+3. Core Policy Rules
+4. Responsibilities and Administration
+5. Compliance, Violations, and Review
  
-1. Annual Leave Entitlement:
-All employees are entitled to 25 days of annual leave per year, including public holidays.
+--------------------------------------------------------------------------------
+Section 1: Purpose and Scope [purpose]
+--------------------------------------------------------------------------------
+Purpose: This policy establishes the annual leave entitlement and the required notice for leave requests. It applies to all employees under the HR policy framework and supports effective workforce planning and consistent leave administration. This policy implements the validated requirements REQ-DEMO-001 and REQ-DEMO-002 as follows: REQ-DEMO-001 – Employees receive 20 days of annual leave per year. REQ-DEMO-002 – Leave requests must be submitted at least 5 days before the leave starts.
  
-2. Approval Process:
-Before taking annual leave, employees must obtain approval from their manager. The approval process is as follows:
+Traceable Requirements: REQ-DEMO-001, REQ-DEMO-002
  
-* The employee must submit a leave request to their manager at least two weeks in advance, providing the dates of leave.
-* The manager will review the leave request and respond to the employee within two days, indicating whether the request is approved 
-or not.
-* If the request is approved, the employee will receive a confirmation email with the details of the leave.
+--------------------------------------------------------------------------------
+Section 2: Definitions and Applicability [definitions]
+--------------------------------------------------------------------------------
+Definitions and applicability: Annual Leave Entitlement means the paid time off allocated to an employee for annual leave, amounting to 20 days per year. Leave Start means the first day of the requested leave period. Notice Period means the minimum lead time required to submit a leave request, which is 5 days prior to the desired start date. This policy applies to all employees as defined in the HR policy framework. This section explicitly states applicability of the verified requirements REQ-DEMO-001 and REQ-DEMO-002.
  
-3. Leave Period:
-The annual leave period begins on the first day of the leave request and ends on the date indicated in the leave request.
+Traceable Requirements: REQ-DEMO-001, REQ-DEMO-002
  
-4. Leave Entitlement Types:
-The annual leave entitlement includes:
+--------------------------------------------------------------------------------
+Section 3: Core Policy Rules [rules]
+--------------------------------------------------------------------------------
+1. Annual Leave Entitlement: Each eligible employee is entitled to 20 days of annual leave per year. This entitlement is defined by REQ-DEMO-001. 2. Leave Request Notice: Leave requests must be submitted at least 5 days before the leave starts. This requirement is defined by REQ-DEMO-002.
  
-* Annual leave: 25 days per year
-* Public holidays: included in the annual leave entitlement
+Traceable Requirements: REQ-DEMO-001, REQ-DEMO-002
  
-5. Carry-Over and Accrual:
-No carry-over or accrual of annual leave is allowed. If an employee takes annual leave for a longer period than they have accrued, 
-they must make up the difference when they return to work.
+--------------------------------------------------------------------------------
+Section 4: Responsibilities and Administration [roles]
+--------------------------------------------------------------------------------
+HR / People Operations: Maintain accurate records of leave balances and entitlement; process leave requests in accordance with this policy. Managers and Supervisors: Review and approve leave requests in a timely manner and ensure notice requirements are observed. Employees: Submit leave requests with at least 5 days’ notice before the intended start date in accordance with the notice period.
  
-6. Request for Leave:
-Employees must submit a leave request to their manager at least two weeks in advance to ensure that business needs are met. 
-Employees can also request leave for special circumstances, such as bereavement or medical leave, using the same process.
+Traceable Requirements: REQ-DEMO-001, REQ-DEMO-002
  
-7. Leave Cancellation:
-If an employee needs to cancel their leave request, they must notify their manager as soon as possible. The manager will assess the 
-impact on the business and may adjust the leave schedule accordingly.
+--------------------------------------------------------------------------------
+Section 5: Compliance, Violations, and Review [compliance]
+--------------------------------------------------------------------------------
+Compliance and enforcement: Non-compliance with entitlement or notice requirements may be addressed through standard internal disciplinary procedures as defined by company policy. Review and updates: This policy will be reviewed annually by HR and updated as needed.
  
-8. Return to Work:
-After taking annual leave, employees are expected to return to work on the date indicated in the leave request. If an employee is 
-unable to return to work on the scheduled date, they must notify their manager and make arrangements for coverage.
+Traceable Requirements: REQ-DEMO-001, REQ-DEMO-002
  
-9. Consequences:
-Failure to follow this policy may result in disciplinary action, up to and including termination.
- 
-10. Review and Revision:
-This policy will be reviewed and revised annually, or as needed.
- 
-By following this policy, employees can ensure that they receive the annual leave entitlement they are entitled to, while also 
-meeting the needs of the business.
+================================================================================
+END OF POLICY DOCUMENT
+================================================================================
     """
 
     result = await agent.run(sample_policy)

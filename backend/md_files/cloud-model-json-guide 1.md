@@ -906,4 +906,68 @@ Only use component types from the supported list.
 5. Use only supported component types (35 types available)
 6. Output pure JSON without markdown or explanations
 
-**For complete component reference, see [render-schema-reference.md](./render-schema-reference.md)**
+
+
+7. Visual Polish and Styling Quality
+
+7.1 Create a Professional, Attractive Interface
+
+Generate a polished, modern, professional UI rather than a plain document layout.
+
+Use a consistent color palette appropriate for the policy's purpose.
+
+Use subtle background colors, borders, rounded corners, and shadows where supported.
+
+Make the policy title visually prominent with appropriate typography and spacing.
+
+Use cards or other supported containers to visually group related policy information.
+
+Make long policy sections easy to scan using clearly styled headings, lists, and accordions.
+
+7.2 Use CSS Deliberately
+
+Use the css object to apply visual styling wherever the schema and renderer support it.
+
+Prefer a restrained palette, such as a primary blue, neutral backgrounds, readable dark text, and subtle borders.
+
+Use valid CSS values with the correct data types.
+
+Apply consistent spacing, padding, margins, font sizes, font weights, and border radii.
+
+Use contrasting text and background colors to maintain readability.
+
+Avoid adding arbitrary CSS properties that are not supported by the renderer.
+
+Do not rely on props for styling when the schema defines a separate css object.
+
+7.3 Style Policy Sections
+
+Use the most suitable supported component for each section.
+
+Use accordions for long sections when the schema supports them.
+
+Give section headings sufficient visual distinction.
+
+Use readable paragraph spacing and well-structured lists.
+
+Use subtle borders or backgrounds to separate sections when appropriate.
+
+Avoid excessive colors, unnecessary decoration, and overly dense layouts.
+
+7.4 Final Visual Quality Check
+
+Before returning the JSON, verify that:
+
+The page has a clear visual hierarchy.
+
+The title and section headings are visually distinct.
+
+Supported CSS styling is included where it improves readability.
+
+The color palette and spacing are consistent.
+
+All styling uses properties supported by the schema and renderer.
+
+The UI remains readable and usable on smaller screens.
+
+The result is valid JSON and preserves the source policy's meaning.
