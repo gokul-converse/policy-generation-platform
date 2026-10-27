@@ -29,25 +29,26 @@ PLACEHOLDERS = [
     "YOUR_ORGANIZATION",
 ]
 
-def create_skill_creator_provider() -> SkillsProvider:
-    """Load the trusted built-in skill-creator guidance."""
+
+def create_company_policy_generator_provider() -> SkillsProvider:
+    """Load built-in company policy generation guidance."""
 
     backend_root = Path(settings.BACKEND_ROOT).resolve()
-    skill_creator_dir = backend_root / "skills" / "skill-creator"
-    skill_creator_file = skill_creator_dir / "SKILL.md"
+    skill_dir = (
+        backend_root / "skills" / "company-policy-generator"
+    )
+    skill_file = skill_dir / "SKILL.md"
 
-    if not skill_creator_file.is_file():
+    if not skill_file.is_file():
         raise FileNotFoundError(
-            f"Required skill-creator file was not found: "
-            f"{skill_creator_file}"
+            f"Built-in company policy skill was not found: {skill_file}"
         )
 
     return SkillsProvider.from_paths(
-        skill_paths=[skill_creator_dir],
+        skill_paths=[skill_dir],
         disable_load_skill_approval=True,
         disable_read_skill_resource_approval=True,
     )
-
 
 def _normalize_requirements(
     validated_requirements: dict[str, Any] | list[Any] | Any,
@@ -379,13 +380,12 @@ async def generate_skills(
     )
 
     llm_client = client or get_foundry_client()
-    skill_creator_provider = create_skill_creator_provider()
-
+    skill_provider = create_company_policy_generator_provider()
     agent = Agent(
         client=llm_client,
         name="SkillGeneratorAgent",
         instructions=SKILL_GENERATOR_INSTRUCTIONS,
-        context_providers=[skill_creator_provider],
+        context_providers=[skill_provider],
         default_options={
             "response_format": GeneratedSkillSet,
         },

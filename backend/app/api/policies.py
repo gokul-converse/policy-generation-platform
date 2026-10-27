@@ -130,14 +130,15 @@ async def get_policy_endpoint(
     return policy
 
 
+
 @router.post(
     "/{policy_id}/modify",
     response_model=PolicyResponse,
     summary="Modify policy",
     description=(
-        "Applies the supplied modification instructions to a policy, "
-        "validates the resulting content, and creates a new policy version. "
-        "A skill should receive a new version only when its own definition changes."
+        "Applies modification instructions to a policy, validates the "
+        "result against authoritative requirements, and creates a new "
+        "policy version only when validation passes."
     ),
 )
 async def modify_policy_endpoint(
@@ -145,7 +146,7 @@ async def modify_policy_endpoint(
     request: PolicyModificationRequest,
     session: AsyncSession = Depends(get_db),
 ) -> PolicyResponse:
-    """Revise policy content or directly edit a section."""
+    """Revise a policy section and return validation details on rejection."""
 
     try:
         return await policy_service.modify_policy_section(
@@ -153,11 +154,28 @@ async def modify_policy_endpoint(
             policy_id=policy_id,
             request=request,
         )
+
+    except policy_service.PolicyModificationRejected as exc:
+        # Return the validation comparison so the frontend can explain
+        # why the modification was rejected.
+        comparison = getattr(exc, "comparison", None)
+
+        detail = {
+            "message": str(exc),
+            "comparison": comparison,
+        }
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=detail,
+        ) from exc
+
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
     except Exception:
         logger.exception(
             "Policy modification failed for policy %s.",
@@ -167,6 +185,7 @@ async def modify_policy_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Policy modification failed due to an internal server error.",
         ) from None
+
 
 
 @router.get(

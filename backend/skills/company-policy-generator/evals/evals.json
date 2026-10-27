@@ -1,0 +1,23 @@
+{
+  "skill_name": "company-policy-generator",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Create a remote work policy for a 50-person software company based in Chennai. Employees can work from home up to 3 days a week.",
+      "expected_output": "A complete remote/hybrid work policy following the standard structure, referencing Indian context, with placeholders listed in an Items to customise table and the legal disclaimer.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Draft an information security policy for our SaaS company aligned to ISO 27001. We are about 120 people and use AWS and Google Workspace.",
+      "expected_output": "An information security policy with concrete controls (MFA, patch SLAs, log retention), Annex A mapping, incident reporting timelines, and placeholders for company values.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "We are a new 15-person startup in India. Which policies do we need right now, and can you write the first two?",
+      "expected_output": "A proposed starter policy set from the catalog (including POSH applicability note), then two fully drafted policies with consistent terminology.",
+      "files": []
+    }
+  ]
+}

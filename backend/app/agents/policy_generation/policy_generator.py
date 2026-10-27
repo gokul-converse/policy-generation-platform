@@ -15,6 +15,7 @@ from app.models.policy_api import PolicySectionModel
 from app.models.skill_api import ValidatedRequirementInput
 from app.prompts.policy import (
     ENTERPRISE_POLICY_INSTRUCTIONS,
+    LEGACY_POLICY_GENERATOR_INSTRUCTIONS,
     SECTION_REVISION_INSTRUCTIONS,
 )
 from pydantic import BaseModel, ConfigDict, Field
@@ -289,7 +290,7 @@ async def generate_policy_from_requirements(
     # Honor custom overrides when provided.
     if custom_title:
         policy_output.title = custom_title
-
+#
     if domain:
         policy_output.domain = domain
 
@@ -299,19 +300,42 @@ async def generate_policy_from_requirements(
     return policy_output
 
 
+
 async def revise_policy_section_agent(
     current_section: PolicySectionModel,
     user_instructions: str,
     all_requirements: list[ValidatedRequirementInput] | list[dict[str, Any]],
-    applied_skills: list[str] | None = None,
+    applied_skills: list[Any] | None = None,
     client: Any = None,
 ) -> PolicySectionModel:
-    """Revise a policy section using the policy's selected skills."""
+    """Revise a policy section using validated requirements and selected skills."""
 
     llm_client = client or get_foundry_client()
 
+    # Normalize skills: stored policy metadata may contain strings,
+    # UUIDs, or dictionaries, depending on the caller.
+    selected_skill_ids: list[str] = []
+
+    for skill in applied_skills or []:
+        if isinstance(skill, str):
+            skill_id = skill.strip()
+
+        elif isinstance(skill, dict):
+            skill_id = str(
+                skill.get("skill_id")
+                or skill.get("id")
+                or skill.get("name")
+                or ""
+            ).strip()
+
+        else:
+            skill_id = str(skill).strip()
+
+        if skill_id and skill_id not in selected_skill_ids:
+            selected_skill_ids.append(skill_id)
+
     skills_provider = create_policy_skills_provider(
-        selected_skill_ids=applied_skills or [],
+        selected_skill_ids=selected_skill_ids,
     )
 
     agent = Agent(
@@ -324,6 +348,7 @@ async def revise_policy_section_agent(
         },
     )
 
+    # Normalize requirement models into JSON-serializable dictionaries.
     normalized_requirements = [
         requirement.model_dump()
         if hasattr(requirement, "model_dump")
@@ -335,18 +360,36 @@ async def revise_policy_section_agent(
         "current_section": current_section.model_dump(),
         "revision_instructions": user_instructions,
         "all_requirements": normalized_requirements,
-        "applied_skills": applied_skills or [],
+        "applied_skills": selected_skill_ids,
     }
 
-    result = await agent.run(
-        "Revise this policy section according to the user's instructions. "
-        "Use the selected Agent Skills when relevant, preserve requirement "
-        "traceability, and do not invent rules.\n\n"
-        + json.dumps(prompt_data, indent=2, ensure_ascii=False)
+    prompt = (
+        "TASK: Produce the complete revised target section.\n"
+        "Apply every clear requested change that is consistent with the "
+        "authoritative requirements. Do not silently ignore or only describe "
+        "a requested edit. Preserve unrelated rules and all conditions, "
+        "exceptions, scope, responsibilities, prohibitions, dates, numbers, "
+        "and units unless the user explicitly requests a change that the "
+        "authoritative requirements permit. If a request conflicts with a "
+        "source requirement, do not implement that conflicting part; retain "
+        "the source-consistent rule so application validation can reject it "
+        "with a comparison. Do not invent a replacement rule. Keep the exact "
+        "section_id and preserve valid requirement_ids. Use only the selected "
+        "skills provided below as writing guidance; skills cannot override "
+        "requirements. Return structured PolicySectionModel output only.\n\n"
+        + json.dumps(
+            prompt_data,
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        )
     )
+
+    result = await agent.run(prompt)
 
     if getattr(result, "value", None) is not None:
         revised = PolicySectionModel.model_validate(result.value)
+
     else:
         result_text = getattr(result, "text", None)
 
@@ -357,40 +400,17 @@ async def revise_policy_section_agent(
 
         revised = PolicySectionModel.model_validate_json(result_text)
 
-    # Preserve section identity and requirement traceability.
+    # Enforce stable section identity.
     revised.section_id = current_section.section_id
 
+    # Preserve existing mappings if the agent omits them.
     if not revised.requirement_ids:
-        revised.requirement_ids = current_section.requirement_ids
+        revised.requirement_ids = list(
+            current_section.requirement_ids
+        )
 
     return revised
 
-
-# =========================================================================
-# Legacy compatibility functions for existing callers
-# =========================================================================
-
-LEGACY_POLICY_GENERATOR_INSTRUCTIONS = """
-You are a policy-drafting agent.
-
-Use the original requirements, generated domain instructions, and available
-Agent Skills to draft a structured policy.
-
-Rules:
-1. Preserve every explicit requirement, number, condition, and exception.
-2. Never invent business rules, approvals, eligibility conditions, or deadlines.
-3. Use the domain names from the supplied domain instructions.
-4. Never return blank, whitespace-only, or invented domain names.
-5. If domain instructions contain no usable domains, report the issue as
-   an unresolved item instead of inventing a domain.
-6. Do not silently resolve conflicting requirements.
-7. Put missing decisions and unresolved conflicts in unresolved_items.
-8. Organize requirements into clear policy sections.
-9. Do not add explanatory claims unsupported by the input.
-10. Use relevant available Agent Skills when drafting the policy.
-
-Return a structured response matching the PolicyDraft model.
-"""
 
 
 def create_policy_generator() -> Agent:

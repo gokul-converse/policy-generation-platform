@@ -21,7 +21,6 @@ from app.repositories.skill_repository import (
     save_skill_set,
 )
 from app.services.requirement_adapter import load_single_requirement
-
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_logger(__name__)

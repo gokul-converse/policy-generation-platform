@@ -1,84 +1,77 @@
 ---
 name: company-policy-generator
-description: Generate complete, company-specific internal policy documents of any kind - HR (leave, attendance, WFH/remote, code of conduct, anti-harassment/POSH, performance, travel and expense, recruitment, exit), IT and information security (acceptable use, BYOD, access control, password, incident response), data privacy, finance (procurement, delegation of authority), health and safety, and similar. Use this skill whenever the user asks to create, draft, write, update, standardise, or review a policy, SOP-style guideline, employee handbook section, or "rules for X" for a company, startup, or team, even if they just say "we need a policy for..." or "make a policy document".
+description: Generate, review, and update professional company policies of any kind - HR (leave, code of conduct, remote work, anti-harassment/POSH, recruitment, performance), IT and information security (acceptable use, data protection, BYOD, access control, incident response, backup, AI use), finance (expenses, procurement, travel, anti-bribery), legal/compliance (whistleblower, conflict of interest, privacy), and operations/health and safety. Make sure to use this skill whenever the user mentions a policy, SOP, handbook, code of conduct, employee guidelines, compliance document, or asks to "draft", "write", "create", "update", or "review" any internal company rule or document, even if they do not use the word "policy".
 ---
 
 # Company Policy Generator
 
-Produce a policy a company can adopt with light editing. A good policy is
-(1) compliant with the law where the company operates, (2) specific enough that
-a reader can answer "what am I allowed to do, and what do I do next?" without
-asking the policy owner, and (3) internally consistent: numbers, roles, and
-timelines never contradict each other.
+Produce policies that are ready to adopt: consistent structure, plain language, enforceable wording, and aligned with the laws that apply to the company. Policies fail in practice when they are vague, copied from another jurisdiction, or impossible to enforce, so every step below aims at clarity, applicability, and enforceability.
 
-## Step 1: Gather inputs
+## Workflow
 
-Ask only for what is missing. If the user described their company, extract
-answers from that first. Where an answer is not given, use the default and
-record it in the Assumptions section instead of stalling. Ask in one short
-batch, never one question at a time.
+1. **Identify the policy type(s).** Match the request to `references/policy-catalog.md`, which lists the standard contents for each policy. If the user asks for a full set ("all HR policies", "policies for a new company"), propose the list from the catalog and confirm before drafting.
+2. **Gather company context.** Needed: company name, industry, size, locations/jurisdiction, work model (office/hybrid/remote), and any existing policies or template. If the user has not given these, ask once, in a single short message, and offer to proceed with placeholders. Do not interrogate; ask only for facts that change the content.
+3. **Pick the legal frame.** Read `references/legal-frameworks.md` and cite only the laws that apply to the stated jurisdiction and industry. Default to India if no jurisdiction is given and say so. If a law's requirement is uncertain or may have changed, flag it for legal verification instead of asserting it, because a wrongly cited statute undermines the whole policy.
+4. **Draft** using the standard structure below.
+5. **Quality check** against the checklist below before delivering.
+6. **Deliver** in the requested format (see Output formats).
 
-| Input | Why it matters | Default |
-|---|---|---|
-| Policy type(s) wanted | Selects the template in `references/policy-types.md` | Required |
-| Company name, industry | Industry decides which regulations apply | Generic services firm |
-| Country and state/region | Law differs; wrong jurisdiction is the most common compliance error | Ask; never guess |
-| Headcount, locations, remote share | Many legal duties trigger at headcount thresholds | 10-50 employees |
-| Who is covered | Employees, contractors, interns, vendors, visitors | Employees + contractors |
-| Existing policies or practices | New policy must not silently reduce current benefits or contradict other policies | None |
-| Tone and culture | Formal vs plain-language | Plain, professional |
-| Special asks | Anything specific the user wants included | None |
+## Standard structure
 
-Country and region are the one input worth asking for if absent.
+Use this order unless the user supplies a house template, in which case follow their template.
 
-## Step 2: Verify current law
+1. Document control block (policy title, ID, version, effective date, owner, approver, next review date)
+2. Purpose
+3. Scope (who and what it covers, including contractors/interns where relevant)
+4. Definitions (only terms actually used)
+5. Policy statements (the rules, numbered 1.1, 1.2 for easy reference)
+6. Roles and responsibilities (employee, manager, HR/IT/Finance, leadership)
+7. Procedures (step-by-step for requests, approvals, reporting, with timelines)
+8. Exceptions and approval process
+9. Violations and disciplinary action
+10. Related policies and legal references
+11. Review cycle and revision history
+12. Acknowledgement/sign-off (where employees must confirm)
 
-Statutory numbers recalled from memory go stale. For any policy touching
-regulated ground (employment, privacy, safety, finance, harassment), use web
-search to confirm the current rule for the user's jurisdiction and company size
-before stating a statutory minimum. Read `references/policy-types.md` for the
-"legal hooks" to check for each policy type. If something cannot be confirmed,
-write it as `[verify: ...]` in the text and list it in the compliance notes. A
-flagged gap is better than a confident wrong number.
+## Drafting rules
 
-For purely internal-governance policies with no legal hook (for example an
-expense policy), skip research and say so in the assumptions.
+- **Use "must", "may", "must not"** with consistent meaning. "Should" creates ambiguity about whether a rule is mandatory.
+- **Make every rule actionable and verifiable**: who does what, by when, and how it is checked.
+- **Placeholders for company-specific values**: write `[X days]`, `[Amount in INR]`, `[Designation]` in bold brackets and list all of them in a short table at the end ("Items to customise") so nothing is missed. Offer sensible suggested defaults in that table.
+- **Plain language**. Short sentences, no unnecessary legalese. Policies are read by employees, not only lawyers.
+- **No invented facts**. Do not fabricate statutes, section numbers, penalties, or company details. When unsure, say "verify with legal counsel".
+- **Proportionate to company size**. A 20-person startup needs a 2-page policy, not 15 pages. Match depth to size and risk.
+- **Consistency across a set**. When generating several policies, reuse the same terminology, roles, escalation path, and disciplinary wording.
+- **Inclusive and non-discriminatory** language throughout.
 
-## Step 3: Draft the policy
+## IT and security policies
 
-Use this skeleton for every policy type, adding the type-specific sections from
-`references/policy-types.md`:
+These need extra care because they are technical and audit-facing.
+- Name the framework the user wants alignment with (ISO 27001, SOC 2, NIST CSF, DPDP Act, GDPR) and map clauses to its controls when asked.
+- Specify concrete controls (password length, MFA, patch timelines, log retention, backup frequency) as placeholders with recommended defaults, not vague statements like "strong passwords".
+- Include incident reporting timelines, because regulators and frameworks set them.
+- For AI use policies, cover approved tools, prohibited data inputs, human review of outputs, and IP/confidentiality.
 
-1. **Title block**: policy name, version, effective date, owner, approver, next review date.
-2. **Purpose**: one short paragraph on why the policy exists.
-3. **Scope**: who and what is covered, and explicit exclusions.
-4. **Definitions**: only terms the reader could misread; define each once.
-5. **Policy statements**: the rules, grouped by theme, each numbered so it can be cited.
-6. **Roles and responsibilities**: who owns, approves, administers, and must comply.
-7. **Procedures**: how to request, report, approve, or escalate, with timelines.
-8. **Exceptions**: who can approve a deviation, how it is recorded.
-9. **Violations and consequences**: proportionate and process-based (notice, explanation, then action).
-10. **Records and confidentiality**: what is kept, where, for how long, who sees it.
-11. **Related documents**: other policies, forms, or laws referenced.
-12. **Governance**: review cycle, amendment procedure, grievance route.
-13. **Assumptions and compliance notes** (last page): inputs assumed, `[verify]` items, and a line stating this is a drafting aid that counsel should review before adoption.
+## Reviewing or updating an existing policy
 
-### Drafting principles
+When the user supplies a policy: read it fully, list gaps against the standard structure and applicable law, then provide a revised version with changes summarised at the top. Preserve their intent and house style; change only what is needed.
 
-- **Never go below statutory minimums**, and say so when the company grants more. Better-than-law is fine; silently worse is a liability.
-- **Be concrete.** "Report incidents within 24 hours to the IT Security Lead" beats "report promptly to the relevant person".
-- **Check consistency.** Roles, deadlines, and thresholds must match everywhere they appear. Cross-check against the user's other policies.
-- **Make it enforceable and realistic.** A rule the company will not enforce weakens every other rule. Prefer fewer, clearer rules.
-- **Protect sensitive information.** Medical, complaint, and personal data handling must be minimal-disclosure, and policies must not permit retaliation for good-faith use of a protected right.
-- **Plain language.** Short sentences, active voice, one defined term per concept. Employees are the main audience, not lawyers.
-- Use "[Company Name]" only if the name was not provided.
+## Quality checklist
 
-## Step 4: Produce the output
+- Every section in the structure is present or deliberately omitted
+- No contradictions between sections or with related policies
+- Applicable laws cited correctly and only where relevant
+- All placeholders listed in the "Items to customise" table
+- Responsibilities have named roles, not "someone"
+- Violations section proportionate and consistent with disciplinary process
+- Legal disclaimer included
 
-Default deliverable is a `.docx`: read the `docx` skill's SKILL.md and follow it. Use numbered headings, a real table wherever data is tabular (entitlements, approval limits, severity levels), the title block first, and the Assumptions page last. If the user asks for PDF, Markdown, or a Docs artifact, produce that instead. For several policies, produce one file per policy unless asked for a combined handbook.
+## Output formats
 
-When delivering, reply in a few sentences: what the policy covers, the key numbers or rules chosen (so they can sanity-check), and the `[verify]` items needing confirmation. Do not paste the policy into chat.
+- Default to a shareable document the user can edit. If the user asks for a Word or PDF file, use the docx or pdf skill respectively.
+- For a policy set, produce one document per policy plus a short index listing each policy, owner, and review date.
+- Keep the chat reply short: state what was produced, list the key placeholders to customise, and offer one next step.
 
-## Updating or reviewing an existing policy
+## Mandatory disclaimer
 
-Work from the supplied document: keep its structure and wording where it is compliant, change only what is non-compliant or requested, and give a short change summary (clause, old, new, reason). Flag any clause that falls below statutory minimums or conflicts with another policy the user has shared.
+End every policy with: "This policy is a template generated for internal use and does not constitute legal advice. Have it reviewed by qualified legal counsel before adoption."

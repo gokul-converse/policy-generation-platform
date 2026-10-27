@@ -131,27 +131,24 @@ class PolicyGenerationRequest(BaseModel):
 
 
 class PolicyModificationRequest(BaseModel):
-    """Request to edit or revise a policy section or policy content."""
+    """Request to revise a policy section using AI instructions."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
-    section_id: str | None = Field(
-        default=None,
-        description=(
-            "Section to revise. When omitted, the service must explicitly "
-            "handle a whole-policy modification."
-        ),
+    section_id: str = Field(
+        min_length=1,
+        description="ID of the policy section to revise.",
     )
     instructions: str = Field(
         min_length=1,
-        description="User instructions detailing requested changes.",
+        description=(
+            "Instructions describing the requested change. "
+            "The service must validate changes against authoritative requirements."
+        ),
     )
-    updated_content: str | None = Field(
-        default=None,
-        description="Direct text replacement for a selected section, if provided.",
-    )
-
-
+    
+    
+    
 class PolicyVersionSummary(BaseModel):
     """Summary of a version record for a policy."""
 
