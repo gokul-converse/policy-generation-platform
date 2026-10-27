@@ -1,0 +1,24 @@
+Document Status: Sample - Not Approved
+Domain: hr
+
+1. EMPLOYEE ELIGIBILITY
+Employees must meet the eligibility requirements established by HR.
+Employment categories and probation rules require company confirmation.
+
+2. LEAVE MANAGEMENT
+Employees should submit leave requests through the approved process.
+Managers review requests and HR maintains leave records.
+Leave entitlement and carry-forward rules require confirmation.
+
+3. ATTENDANCE AND WORKING HOURS
+Employees should follow their assigned working schedules.
+Absences, late arrivals, and permission requests should be recorded.
+
+4. EMPLOYEE RESPONSIBILITIES
+Employees should provide accurate information and follow company policies.
+
+5. HR RESPONSIBILITIES
+HR maintains employee records and communicates policy updates.
+
+6. POLICY REVIEW
+This is sample data for testing only. Actual company rules require confirmation.

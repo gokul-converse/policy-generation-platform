@@ -1,12 +1,14 @@
 
-from functools import lru_cache
+"""Configure the Microsoft Agent Framework Ollama client."""
 
 from agent_framework.ollama import OllamaChatClient
+from app.config.settings import settings
 
-from app.config.settings import OLLAMA_MODEL
 
+def create_ollama_client() -> OllamaChatClient:
+    """Create a client using the application's shared settings."""
 
-@lru_cache(maxsize=1)                               # Least Recently Used Cache - Python decorator that remembers the result of a function call, so Python can reuse the same object instead of creating it again.
-def get_ollama_client() -> OllamaChatClient:
-    """Return the shared Ollama chat client."""
-    return OllamaChatClient(model=OLLAMA_MODEL)
+    return OllamaChatClient(
+        host=settings.ollama_base_url,
+        model=settings.ollama_model,
+    )

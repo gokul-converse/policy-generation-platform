@@ -1,14 +1,65 @@
+# Python and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Local databases and runtime output
+*.db
+*.sqlite
+*.sqlite3
+logs/
+data/policy.txt
+data/policies/
+app/generated_skills/
+generated_skills/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
 # Virtual environments
 venv/
 .venv/
 
-# Python cache
-__pycache__/
-*.py[cod]
-.pytest_cache/
-
-# Secrets
-.env
-
 # Logs
 *.log
+
+
+data/sample_documents
+data/enterprise_policy.db
+
+
+
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Environment variables
+.env
+.env.*
+!.env.example
+!backend/.env.example
+
+# Node dependencies
+node_modules/
+
+
+
+# Local databases and backups
+backend/data/*.db
+backend/data/*.db-*
+*.db
+*.db-*
+
+

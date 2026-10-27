@@ -1,0 +1,24 @@
+Document Status: Sample - Not Approved
+Domain: finance
+
+1. EXPENSE ELIGIBILITY
+Expenses must relate to authorized business activities.
+
+2. EXPENSE CLAIM SUBMISSION
+Claims should include the amount, date, business purpose, and receipts.
+
+3. APPROVAL WORKFLOW
+Managers review business purpose and budget availability.
+Finance checks supporting documents before processing claims.
+
+4. REIMBURSEMENT
+Approved claims are processed according to the company payment schedule.
+
+5. BUDGET CONTROL
+Departments should monitor spending against approved budgets.
+
+6. FINANCE RECORDKEEPING
+Finance maintains expense records and approval history.
+
+7. POLICY REVIEW
+This is sample data. Actual approval limits and timelines require confirmation.
