@@ -30,25 +30,48 @@ PLACEHOLDERS = [
 ]
 
 
-def create_company_policy_generator_provider() -> SkillsProvider:
-    """Load built-in company policy generation guidance."""
+def create_skill_design_provider() -> SkillsProvider | None:
+    """Load generic skill-design guidance when available.
 
+    Prefer a generic skill-creator skill. The existing company-policy skill
+    remains a compatibility fallback for projects that have not added one.
+    If neither exists, generation can proceed using the system prompt alone.
+    """
     backend_root = Path(settings.BACKEND_ROOT).resolve()
-    skill_dir = (
-        backend_root / "skills" / "company-policy-generator"
-    )
-    skill_file = skill_dir / "SKILL.md"
+    skills_root = backend_root / "skills"
 
-    if not skill_file.is_file():
-        raise FileNotFoundError(
-            f"Built-in company policy skill was not found: {skill_file}"
+    preferred_names = (
+        "company-policy-generator",
+    )
+
+    for skill_name in preferred_names:
+        skill_dir = skills_root / skill_name
+        skill_file = skill_dir / "SKILL.md"
+
+        if not skill_file.is_file():
+            continue
+
+        if skill_name == "company-policy-generator":
+            logger.warning(
+                "Generic skill-creator guidance was not found; "
+                "using company-policy-generator as a compatibility fallback."
+            )
+
+        return SkillsProvider.from_paths(
+            skill_paths=[skill_dir],
+            disable_load_skill_approval=True,
+            disable_read_skill_resource_approval=True,
         )
 
-    return SkillsProvider.from_paths(
-        skill_paths=[skill_dir],
-        disable_load_skill_approval=True,
-        disable_read_skill_resource_approval=True,
+    logger.info(
+        "No built-in skill-design provider found; using prompt-only generation."
     )
+    return None
+
+
+# Backward-compatible alias for existing callers.
+create_company_policy_generator_provider = create_skill_design_provider
+
 
 def _normalize_requirements(
     validated_requirements: dict[str, Any] | list[Any] | Any,
@@ -308,21 +331,84 @@ def validate_generated_skill_set(
         )
 
 
+
+def canonicalize_source_requirements(
+    skill_set: GeneratedSkillSet,
+    validated_requirements: dict[str, Any],
+) -> None:
+    """
+    Rebuild each skill's Source Requirements section from authoritative input.
+
+    The LLM creates skill guidance, but Python owns exact source-text copying.
+    This avoids retrying when a model paraphrases source requirement text.
+    """
+    requirement_text_by_id = {
+        item["requirement_id"]: item["text"]
+        for item in validated_requirements["requirements"]
+    }
+
+    for skill in skill_set.skills:
+        # Let the validator report invalid/duplicate/unknown IDs clearly.
+        if (
+            not skill.requirement_ids
+            or len(skill.requirement_ids) != len(set(skill.requirement_ids))
+            or any(rid not in requirement_text_by_id for rid in skill.requirement_ids)
+        ):
+            continue
+
+        original_lines = skill.instructions.splitlines()
+        kept_lines: list[str] = []
+        inside_source_section = False
+
+        # Remove existing Source Requirements section(s), retaining any later
+        # non-source sections so the final validator can assess their order.
+        for line in original_lines:
+            stripped = line.strip()
+
+            if stripped == "## Source Requirements":
+                inside_source_section = True
+                continue
+
+            if inside_source_section:
+                # Source Requirements is a level-2 section. Resume if another
+                # level-2 heading appears after it.
+                if stripped.startswith("## "):
+                    inside_source_section = False
+                    kept_lines.append(line)
+                else:
+                    continue
+            else:
+                kept_lines.append(line)
+
+        while kept_lines and not kept_lines[-1].strip():
+            kept_lines.pop()
+
+        source_lines = ["", "## Source Requirements"]
+        source_lines.extend(
+            f"- {requirement_id}: {requirement_text_by_id[requirement_id]}"
+            for requirement_id in skill.requirement_ids
+        )
+
+        skill.instructions = "\n".join(kept_lines + source_lines).strip() + "\n"
+
+
 REPAIR_CHECKLIST = """
-While fixing the issue below, re-verify every one of these constraints on
-your corrected output — do not regress a constraint that was previously
-satisfied while fixing a different one:
-- The instructions field starts with a descriptive Markdown H1 title
-  ("# Title"), as its first non-blank line.
-- The instructions field contains exactly one of each, in this order:
-  "## Purpose", "## Instructions", "## Source Requirements".
-- The Source Requirements section has one bullet per referenced
-  requirement, formatted exactly as "- REQUIREMENT_ID: original text",
-  preserving the original requirement text verbatim.
-- No YAML frontmatter inside instructions, no placeholder text
-  (e.g. [TODO], [INSERT ...]).
-- Skill names are unique, lowercase kebab-case, and every input
-  requirement is covered by at least one skill.
+Correct the validation error in the previous output.
+
+Mandatory rules:
+1. Each skill must have a descriptive H1 title as its first non-empty line.
+2. Include exactly one of each heading, in this order:
+   ## Purpose
+   ## Instructions
+   ## Source Requirements
+3. Replace every placeholder with complete, requirement-supported content.
+4. Never output [INSERT], [TODO], [PLACEHOLDER], or template instructions.
+5. Preserve valid skill names, descriptions, requirement IDs, and exact
+   source requirement text.
+6. Cover every input requirement. Do not invent policy rules.
+7. Return only output matching the required schema.
+
+Fix the reported error and preserve all content that already passes validation.
 """
 
 
@@ -380,12 +466,12 @@ async def generate_skills(
     )
 
     llm_client = client or get_foundry_client()
-    skill_provider = create_company_policy_generator_provider()
+    skill_provider = create_skill_design_provider()
     agent = Agent(
         client=llm_client,
         name="SkillGeneratorAgent",
         instructions=SKILL_GENERATOR_INSTRUCTIONS,
-        context_providers=[skill_provider],
+        context_providers=[skill_provider] if skill_provider is not None else [],
         default_options={
             "response_format": GeneratedSkillSet,
         },
@@ -429,6 +515,14 @@ async def generate_skills(
             # Keep the raw attempt available for the next repair prompt,
             # even if this attempt goes on to fail validation below.
             previous_output_json = skill_set.model_dump_json()
+
+            # Source text is deterministic data, not LLM-authored content.
+            # Rebuild it before validation so exact traceability is reliable
+            # for any skill domain, not just company-policy skills.
+            canonicalize_source_requirements(
+                skill_set=skill_set,
+                validated_requirements=requirements,
+            )
 
             validate_generated_skill_set(
                 skill_set=skill_set,
