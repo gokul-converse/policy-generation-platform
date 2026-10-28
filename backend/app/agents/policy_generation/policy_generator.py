@@ -47,7 +47,11 @@ class StructuredPolicyGenerationOutput(BaseModel):
     )
     unresolved_items: list[str] = Field(
         default_factory=list,
-        description="Unresolved gaps or clarification items.",
+        description=(
+            "Specific, actionable policy decisions that cannot be safely "
+            "derived from validated requirements. Keep each item concise. "
+            "Exclude out-of-scope technical implementation questions."
+        ),
     )
 
 

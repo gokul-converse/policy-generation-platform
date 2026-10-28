@@ -1,6 +1,6 @@
 ================================================================================
 ENTERPRISE POLICY: EMPLOYEE LEAVE POLICY
-Domain: hr | Version: 1 | Status: DRAFT
+Domain: hr | Version: 1 | Status: APPROVED
 ================================================================================
 
 ## Executive Summary

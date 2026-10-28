@@ -1,44 +1,52 @@
 ================================================================================
-ENTERPRISE POLICY: EMPLOYEE LEAVE POLICY
-Domain: hr | Version: 1 | Status: DRAFT
+ENTERPRISE POLICY: WORK-FROM-HOME POLICY
+Domain: hr | Version: 2 | Status: DRAFT
 ================================================================================
 
 ## Executive Summary
-I want to create an employee leave policy. It should define leave eligibility, annual leave limits, approval workflow, and rules for applying for leave.
+I want to create a work-from-home policy for our company. Employees should know when they can work from home, how to request permission, and what rules they need to follow while working remotely.
 
 ## Table of Contents
-1. Purpose and Scope
-2. Core Policy Rules (Current Draft Status)
-3. Stakeholders, Roles, and Governance
-4. Unresolved Items and Next Steps
+1. Purpose, Scope, and Policy Overview
+2. Eligibility and Remote-Work Designation
+3. Request Process and Timelines
+4. Limits, Approvals, and Scheduling
+5. Stakeholders and Responsibilities
 
 --------------------------------------------------------------------------------
-Section 1: Purpose and Scope [SEC-001]
+Section 1: Purpose, Scope, and Policy Overview [SEC-001]
 --------------------------------------------------------------------------------
-Purpose: Define eligibility, entitlements, accrual, carryover, approval workflow, and application rules for employee leaves. Scope: This policy covers eligibility criteria, annual leave entitlements and accrual, carryover/expiry/encashment rules, approval workflow per leave type, and rules for applying for leave; excludes detailed system implementation specifics and data-model definitions at this stage.
+This policy defines eligibility, request process, and remote-work rules for employees working from home to ensure consistency, approvals, and timely handling. Scope: Full-time employees in remote-friendly roles may work from home up to two days per week with manager approval; full-time remote work requires special approval; remote-friendly designation is reviewed annually and updated when job responsibilities change.
 
-Traceable Requirements: 4809a182-007e-41e8-9372-80e60ad3dd87
-
---------------------------------------------------------------------------------
-Section 2: Core Policy Rules (Current Draft Status) [SEC-002]
---------------------------------------------------------------------------------
-Current status: No final policy rules defined yet; awaiting clarification on eligibility, entitlements, accrual, carryover, and approval workflows. Leave requests are submitted via the Leave Management System; a general process is defined but specific notice periods and documentation are pending. Testing placeholder: probation duration 3 months for testing; accrual to begin after probation is a test assumption, not approved policy. This section excludes detailed system implementation specifics and data-model definitions at this stage.
-
-Traceable Requirements: 4809a182-007e-41e8-9372-80e60ad3dd87
+Traceable Requirements: f90545c6-7339-4907-a580-93e166c10a0e
 
 --------------------------------------------------------------------------------
-Section 3: Stakeholders, Roles, and Governance [SEC-003]
+Section 2: Eligibility and Remote-Work Designation [SEC-002]
 --------------------------------------------------------------------------------
-Stakeholders: HR Department; HRIS/Leave Management System Team; Line Managers/Department Heads; Payroll/Finance Team. Governance and day-to-day policy administration roles, responsibilities, and approval workflows are to be defined in subsequent implementation plans; this draft does not assign binding obligations.
+Eligible employees are full-time employees in remote-friendly roles. Remote-friendly roles are determined by whether tasks can be performed remotely; HR and department managers approve and annually review the designation, updating it when job responsibilities change.
 
-Traceable Requirements: 4809a182-007e-41e8-9372-80e60ad3dd87
+Traceable Requirements: f90545c6-7339-4907-a580-93e166c10a0e
 
 --------------------------------------------------------------------------------
-Section 4: Unresolved Items and Next Steps [SEC-004]
+Section 3: Request Process and Timelines [SEC-003]
 --------------------------------------------------------------------------------
-This section documents the open decisions and information gaps identified in the validated requirements. The unresolved items are listed in the policy’s Unresolved Items appendix and will be resolved through stakeholder consensus and formal policy approval workflows before finalization.
+Requests to work from home must be submitted through the company’s HR system, including the proposed dates, reason, and manager’s approval. WFH requests should be reviewed within two business days.
 
-Traceable Requirements: 4809a182-007e-41e8-9372-80e60ad3dd87
+Traceable Requirements: f90545c6-7339-4907-a580-93e166c10a0e
+
+--------------------------------------------------------------------------------
+Section 4: Limits, Approvals, and Scheduling [SEC-004]
+--------------------------------------------------------------------------------
+Employees in eligible roles may work from home up to two days per week. All WFH requests require manager approval. Requests must be submitted through the company’s HR system at least three business days in advance, including the proposed dates and the reason. Full-time remote work requires special approval.
+
+Traceable Requirements: f90545c6-7339-4907-a580-93e166c10a0e
+
+--------------------------------------------------------------------------------
+Section 5: Stakeholders and Responsibilities [SEC-005]
+--------------------------------------------------------------------------------
+Stakeholders: Human Resources (HR), Department Managers, Employees, IT Department, Direct Managers/Supervisors.
+
+Traceable Requirements: f90545c6-7339-4907-a580-93e166c10a0e
 
 ================================================================================
 END OF POLICY DOCUMENT
