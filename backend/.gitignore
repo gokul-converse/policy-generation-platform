@@ -15,10 +15,7 @@ htmlcov/
 *.sqlite
 *.sqlite3
 logs/
-data/policy.txt
-data/policies/
-app/generated_skills/
-generated_skills/
+
 
 # IDE / OS
 .vscode/
