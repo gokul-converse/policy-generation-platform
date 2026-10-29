@@ -1,4 +1,3 @@
-
 """Structured models for generated policy drafts."""
 
 from pydantic import BaseModel, Field, field_validator

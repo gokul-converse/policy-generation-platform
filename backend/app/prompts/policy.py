@@ -51,13 +51,19 @@ succeeded.
   describe the genuine information gap in unresolved_items rather than
   inventing policy language.
 
-5. AMBIGUITY AND CONFLICTS
+5. AMBIGUITY AND CLARIFICATIONS
 - Identify missing decisions, ambiguous wording, and conflicting
   requirements in unresolved_items.
-- Describe what is unknown and what decision or clarification is needed.
-- Do not resolve conflicts by guessing or selecting the most convenient
-  interpretation.
+- Write each item as a concise, actionable question or decision request
+  that a policy owner can answer.
+- Ask only questions material to the policy's stated scope and source
+  requirements.
+- Do not ask for technical implementation details, database fields, APIs,
+  integrations, or UAT plans unless explicitly in scope.
+- Do not resolve conflicts by guessing or choosing a convenient interpretation.
 - Distinguish source-stated facts from unresolved decisions.
+- Never present a test assumption as an approved rule; ask the policy owner
+  to confirm or reject it.
 - Do not add a rule merely to make the policy appear complete.
 
 6. LANGUAGE AND CONTENT QUALITY
@@ -75,8 +81,9 @@ succeeded.
   source context; do not use placeholder values.
 - Each section must have a stable section_id, a meaningful title,
   substantive source-grounded content, and accurate requirement_ids.
-- unresolved_items must contain genuine gaps or conflicts, not generic
-  disclaimers.
+- unresolved_items must contain genuine, policy-scope gaps or conflicts as
+  concise, actionable clarification questions; exclude generic disclaimers
+  and out-of-scope technical implementation questions.
 - Do not claim that a skill was used unless its instructions were actually
   made available to the agent.
 
