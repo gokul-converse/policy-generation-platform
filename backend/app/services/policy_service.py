@@ -286,6 +286,39 @@ async def load_skill_instructions(
     return "", applied_identifiers
 
 
+def _stored_clarification_items(version_record: PolicyVersion) -> list[str]:
+    """Read deduplicated unresolved clarification items from a saved version."""
+    raw_report = getattr(version_record, "validation_report_json", None)
+    if not raw_report or raw_report == "{}":
+        return []
+
+    try:
+        report = json.loads(raw_report)
+    except (TypeError, json.JSONDecodeError):
+        logger.warning(
+            "Could not parse validation report for policy version %s",
+            getattr(version_record, "version", "unknown"),
+        )
+        return []
+
+    if not isinstance(report, dict):
+        return []
+
+    items = report.get("clarification_items") or []
+    if not isinstance(items, list):
+        return []
+
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if isinstance(item, str) and item.strip():
+            value = item.strip()
+            if value.casefold() not in seen:
+                cleaned.append(value)
+                seen.add(value.casefold())
+    return cleaned
+
+
 def _build_policy_response(
     policy: Policy,
     version_record: PolicyVersion,
@@ -1072,26 +1105,34 @@ async def modify_policy_section(
 
     # ---------------------------------------------------------------
     # 10. Validate the complete revised policy.
-    # ---------------------------------------------------------------
+    # A wording change does not mean that the user has answered prior
+    # clarification questions, so carry them forward until source requirements
+    # are updated and the policy is revalidated.
+    inherited_clarifications = _stored_clarification_items(latest_version)
     validation_report = validate_policy_draft(
         sections=updated_sections,
         requirements=normalized_requirements,
+        unresolved_items=inherited_clarifications,
     )
 
-    if validation_report.overall_status.upper() != "PASS":
+    # FAIL blocks persistence. NEEDS_CLARIFICATION is still a valid draft state;
+    # the new version can be saved but cannot be approved.
+    if validation_report.overall_status.upper() == "FAIL":
         details = "\n".join(
             f"- {finding.rule_name}: {finding.message}"
-            + (f" Details: {'; '.join(finding.details)}" if finding.details else "")
+            + (
+                f" Details: {'; '.join(finding.details)}"
+                if finding.details else ""
+            )
             for finding in validation_report.findings
-            if finding.status in {"FAIL", "NEEDS_CLARIFICATION"}
+            if finding.status == "FAIL"
         )
         raise PolicyModificationRejected(
             "Policy modification rejected because whole-policy validation "
-            "did not pass. No new policy version was created:\n" + details,
+            "failed. No new policy version was created:\n" + details,
             comparison=validation_report.model_dump(),
         )
 
-    # ---------------------------------------------------------------
     # 11. Create a new policy version and linked skill versions.
     # ---------------------------------------------------------------
     skills_root = Path(
@@ -1232,12 +1273,13 @@ async def modify_policy_section(
     )
 
 
+
 async def approve_policy_version(
     session: AsyncSession,
     policy_id: UUID,
     version: int,
 ) -> PolicyResponse:
-    """Approve a specific policy version."""
+    """Approve a specific version of a policy without validation checks."""
 
     updated_version = (
         await policy_repository.update_policy_version_status(

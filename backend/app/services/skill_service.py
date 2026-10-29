@@ -373,20 +373,13 @@ async def get_skill_detail(
     )
 
 
-
 async def list_all_skills(
     session: AsyncSession,
     limit: int | None = None,
     offset: int = 0,
 ) -> list[SkillDetailResponse]:
-    """Retrieve skills, version metadata, and Markdown content."""
-
-    skills = await list_skills(
-        session,
-        limit=limit,
-        offset=offset,
-    )
-
+    """Retrieve skills and their version metadata."""
+    skills = await list_skills(session, limit=limit, offset=offset)
     results: list[SkillDetailResponse] = []
 
     for skill in skills:
@@ -401,7 +394,7 @@ async def list_all_skills(
                 source_requirement_version_id=(
                     version.source_requirement_version_id
                 ),
-                content=read_skill_file_content(version.file_path),
+                content=None,
             )
             for version in sorted(
                 skill.versions,
@@ -421,7 +414,6 @@ async def list_all_skills(
         )
 
     return results
-
 
 
 async def get_skill_version_detail(

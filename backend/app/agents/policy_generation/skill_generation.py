@@ -41,6 +41,8 @@ def create_skill_design_provider() -> SkillsProvider | None:
     skills_root = backend_root / "skills"
 
     preferred_names = (
+        "skill-creator",
+        "agent-skill-creator",
         "company-policy-generator",
     )
 
@@ -134,7 +136,7 @@ def _normalize_requirements(
         compact_requirements.append(
             {
                 "requirement_id": requirement_id.strip(),
-                "text": requirement_text.strip(),
+                "text": requirement_text,
             }
         )
 
@@ -306,16 +308,15 @@ def validate_generated_skill_set(
                 "in the wrong order."
             )
 
-        # Check that every referenced requirement's original text is
-        # present as a bullet under the Source Requirements heading.
-        source_heading_position = heading_positions[-1]
-        source_lines = lines[source_heading_position + 1 :]
+        # Compare against the complete section, not individual lines:
+        # authoritative requirement text may itself contain line breaks.
+        source_section = body.split("## Source Requirements", maxsplit=1)[1]
 
         for requirement_id in skill.requirement_ids:
             original_text = requirement_text_by_id[requirement_id]
-            expected_line = f"- {requirement_id}: {original_text}"
+            expected_entry = f"- {requirement_id}: {original_text}"
 
-            if expected_line not in source_lines:
+            if expected_entry not in source_section:
                 raise ValueError(
                     f"Skill {skill.name!r} must preserve the original "
                     f"text for requirement {requirement_id!r} in its "
@@ -383,13 +384,18 @@ def canonicalize_source_requirements(
         while kept_lines and not kept_lines[-1].strip():
             kept_lines.pop()
 
-        source_lines = ["", "## Source Requirements"]
-        source_lines.extend(
+        # Keep the authoritative source text intact, including embedded
+        # newlines and trailing whitespace. Only trim the generated content
+        # before the Source Requirements section.
+        base = "\n".join(kept_lines).rstrip()
+        source_entries = "\n".join(
             f"- {requirement_id}: {requirement_text_by_id[requirement_id]}"
             for requirement_id in skill.requirement_ids
         )
 
-        skill.instructions = "\n".join(kept_lines + source_lines).strip() + "\n"
+        skill.instructions = (
+            f"{base}\n\n## Source Requirements\n{source_entries}\n"
+        )
 
 
 REPAIR_CHECKLIST = """

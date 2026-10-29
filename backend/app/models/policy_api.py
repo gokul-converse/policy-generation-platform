@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from app.models.skill_api import ValidatedRequirementInput
 from pydantic import BaseModel, ConfigDict, Field
 
 
