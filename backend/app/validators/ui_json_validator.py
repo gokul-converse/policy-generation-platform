@@ -6,7 +6,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-SCHEMA_PATH = BACKEND_DIR / "schemas" / "policy-ui-contract.schema.json"
+SCHEMA_PATH = BACKEND_DIR / "json_schema" / "policy-ui-contract.schema.json"
 
 
 @lru_cache(maxsize=1)
