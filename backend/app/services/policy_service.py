@@ -1273,60 +1273,13 @@ async def modify_policy_section(
     )
 
 
+
 async def approve_policy_version(
     session: AsyncSession,
     policy_id: UUID,
     version: int,
 ) -> PolicyResponse:
-    """Approve a policy version only after validation has passed."""
-
-    policy = await policy_repository.get_policy_by_id(
-        session,
-        policy_id,
-    )
-    if policy is None:
-        raise ValueError(f"Policy {policy_id} not found.")
-
-    target_version = next(
-        (item for item in policy.versions if item.version == version),
-        None,
-    )
-    if target_version is None:
-        raise ValueError(
-            f"Policy {policy_id} version {version} not found."
-        )
-
-    validation_status = str(
-        getattr(target_version, "validation_status", "") or ""
-    ).strip().upper()
-    clarification_items = _stored_clarification_items(target_version)
-
-    report_status = ""
-    raw_report = getattr(target_version, "validation_report_json", None)
-    if raw_report and raw_report != "{}":
-        try:
-            parsed_report = json.loads(raw_report)
-        except (TypeError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                "Cannot approve this policy version because its validation "
-                "report is invalid. Revalidate the policy first."
-            ) from exc
-
-        if isinstance(parsed_report, dict):
-            report_status = str(
-                parsed_report.get("overall_status", "") or ""
-            ).strip().upper()
-
-    if (
-        validation_status != "PASS"
-        or (report_status and report_status != "PASS")
-        or clarification_items
-    ):
-        raise ValueError(
-            "This policy version cannot be approved because validation has "
-            "not passed or clarification items remain unresolved. Resolve "
-            "the clarifications, regenerate/revalidate the policy, and retry."
-        )
+    """Approve a specific version of a policy without validation checks."""
 
     updated_version = (
         await policy_repository.update_policy_version_status(
@@ -1341,6 +1294,14 @@ async def approve_policy_version(
         raise ValueError(
             f"Policy {policy_id} version {version} not found."
         )
+
+    policy = await policy_repository.get_policy_by_id(
+        session,
+        policy_id,
+    )
+
+    if policy is None:
+        raise ValueError(f"Policy {policy_id} not found.")
 
     sections = [
         PolicySectionModel.model_validate(item)
