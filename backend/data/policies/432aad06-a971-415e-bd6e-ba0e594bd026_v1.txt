@@ -1,0 +1,21 @@
+================================================================================
+ENTERPRISE POLICY: EMPLOYEE LEAVE POLICY
+Domain: hr | Version: 1 | Status: DRAFT
+================================================================================
+
+## Executive Summary
+I want to create an employee leave policy. It should define leave eligibility, annual leave limits, approval workflow, and rules for applying for leave.
+
+## Table of Contents
+1. Purpose and Scope
+
+--------------------------------------------------------------------------------
+Section 1: Purpose and Scope [SEC-001]
+--------------------------------------------------------------------------------
+Purpose: Establish a structured approach to employee leaves within the HR domain, defining eligibility, entitlements, accrual, carryover, expiry, encashment, and the approval workflow by leave type, as well as the process to apply for leave. Scope: Applies to all regular employees; covers eligibility criteria, annual leave entitlements and accrual, carryover/expiry/encashment rules, per-leave-type approval workflows, and application requirements. Status: The validated requirement indicates that final policy rules are not yet defined and clarifications are required for eligibility, entitlements, accrual, carryover, and approval workflows. The draft identifies unresolved policy details and notes a testing assumption from the validated input: a probation duration of 3 months; accrual timing after probation is a test assumption and not an approved policy.
+
+Traceable Requirements: 4809a182-007e-41e8-9372-80e60ad3dd87
+
+================================================================================
+END OF POLICY DOCUMENT
+================================================================================

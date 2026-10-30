@@ -41,8 +41,6 @@ def create_skill_design_provider() -> SkillsProvider | None:
     skills_root = backend_root / "skills"
 
     preferred_names = (
-        "skill-creator",
-        "agent-skill-creator",
         "company-policy-generator",
     )
 
@@ -54,8 +52,7 @@ def create_skill_design_provider() -> SkillsProvider | None:
             continue
 
         if skill_name == "company-policy-generator":
-            logger.warning(
-                "Generic skill-creator guidance was not found; "
+            logger.info(
                 "using company-policy-generator as a compatibility fallback."
             )
 
