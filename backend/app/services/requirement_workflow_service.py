@@ -3,6 +3,8 @@
 
 import json
 import re
+import logging
+from time import perf_counter
 from uuid import uuid4
 
 from sqlalchemy import func, select
@@ -36,6 +38,8 @@ from app.services.requirement_session_service import (
 
 MIN_CLARIFICATION_QUESTIONS = 3
 MAX_CLARIFICATION_QUESTIONS = 5
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_question(question: str) -> str:
@@ -100,6 +104,39 @@ def _build_review_draft(
     return draft
 
 
+def _get_requirement_metadata(
+    details: RequirementDetails | dict,
+) -> tuple[str, str]:
+    """Return a meaningful topic and a readable, non-JSON description."""
+    data = (
+        details.model_dump()
+        if isinstance(details, RequirementDetails)
+        else details
+    )
+
+    policy_name = data.get("policy_name")
+    purpose = data.get("purpose")
+    scope = data.get("scope")
+
+    policy_name = policy_name.strip() if isinstance(policy_name, str) else ""
+    purpose = purpose.strip() if isinstance(purpose, str) else ""
+    scope = scope.strip() if isinstance(scope, str) else ""
+
+    # Prefer the explicit policy name; otherwise derive a readable topic
+    # from the purpose instead of saving the generic word "Requirement".
+    if policy_name:
+        topic = policy_name[:150]
+    elif purpose:
+        topic = purpose.split(".")[0].strip()[:150] or "Untitled Requirement"
+    else:
+        topic = "Untitled Requirement"
+
+    # Keep this field human-readable. The complete structured snapshot belongs
+    # in RequirementVersion.requirements_json.
+    description = purpose or scope or f"Requirements for {topic}."
+    return topic, description
+
+
 async def _upsert_requirement(
     session_id: str,
     details: RequirementDetails,
@@ -123,11 +160,7 @@ async def _upsert_requirement(
         )
         requirement = result.scalar_one_or_none()
 
-        topic = details.policy_name or "Requirement"
-        description = json.dumps(
-            details.model_dump(),
-            ensure_ascii=False,
-        )
+        topic, description = _get_requirement_metadata(details)
 
         if requirement is None:
             requirement = Requirement(
@@ -274,9 +307,15 @@ async def process_requirement_message(
 
     await update_session_status(session_id, "gathering")
 
+    gathering_started = perf_counter()
     gathered = await gather_requirements(
         description=session.original_description,
         conversation_history=agent_context,
+    )
+    logger.info(
+        "requirement_gathering_agent took %.2f seconds for session %s",
+        perf_counter() - gathering_started,
+        session_id,
     )
 
     requirement_id = await _upsert_requirement(
@@ -291,9 +330,15 @@ async def process_requirement_message(
         domain=gathered.requirements.domain,
     )
 
+    validation_started = perf_counter()
     validation = await validate_requirements(
         gathered=gathered,
         conversation_history=agent_context,
+    )
+    logger.info(
+        "requirement_validation_agent took %.2f seconds for session %s",
+        perf_counter() - validation_started,
+        session_id,
     )
 
     question_count, normalized_questions, clarification_history = (
@@ -480,6 +525,13 @@ async def _confirm_requirement(
                 "The latest validation result is not a draft."
             )
 
+        policy_name = draft.get("policy_name")
+        if not isinstance(policy_name, str) or not policy_name.strip():
+            raise ValueError(
+                "Cannot confirm requirements without a policy name. "
+                "Please provide or generate a meaningful policy name first."
+            )
+
         version_result = await db.execute(
             select(func.max(RequirementVersion.version_number))
             .where(RequirementVersion.session_id == session_id)
@@ -509,21 +561,20 @@ async def _confirm_requirement(
         )
         requirement = requirement_result.scalar_one_or_none()
 
+        topic, description = _get_requirement_metadata(draft)
+
         if requirement is None:
             requirement = Requirement(
                 requirement_id=str(uuid4()),
                 session_id=session_id,
-                topic=draft.get("policy_name") or "Requirement",
-                description=json.dumps(draft, ensure_ascii=False),
+                topic=topic,
+                description=description,
                 status="confirmed",
             )
             db.add(requirement)
         else:
-            requirement.topic = draft.get("policy_name") or "Requirement"
-            requirement.description = json.dumps(
-                draft,
-                ensure_ascii=False,
-            )
+            requirement.topic = topic
+            requirement.description = description
             requirement.status = "confirmed"
 
         session.status = "confirmed"
