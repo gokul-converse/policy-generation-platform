@@ -179,6 +179,59 @@ async def get_slash_commands(
 
 
 
+def _apply_authoritative_requirement_text(
+    adapted: Any,
+    requirement_id: str,
+    original_description: str | None,
+) -> Any:
+    """
+    Ensure the generated skill traces back to the original requirement text.
+
+    The adapter may normalize its payload; when the loader also provides the
+    authoritative original description, use it for the matching requirement.
+    """
+    if not isinstance(original_description, str) or not original_description.strip():
+        return adapted
+
+    # Work with a mutable dictionary/list even if the adapter returns a model.
+    if hasattr(adapted, "model_dump"):
+        adapted = adapted.model_dump()
+
+    if isinstance(adapted, dict):
+        requirements = adapted.get("requirements")
+        if not isinstance(requirements, list):
+            return adapted
+
+        for index, item in enumerate(requirements):
+            if hasattr(item, "model_dump"):
+                item = item.model_dump()
+                requirements[index] = item
+
+            if (
+                isinstance(item, dict)
+                and str(item.get("requirement_id")) == requirement_id
+            ):
+                item["text"] = original_description
+                return adapted
+
+        return adapted
+
+    if isinstance(adapted, list):
+        for index, item in enumerate(adapted):
+            if hasattr(item, "model_dump"):
+                item = item.model_dump()
+                adapted[index] = item
+
+            if (
+                isinstance(item, dict)
+                and str(item.get("requirement_id")) == requirement_id
+            ):
+                item["text"] = original_description
+                return adapted
+
+    return adapted
+
+
 async def generate_and_save_skills(
     session: AsyncSession,
     session_id: str,
@@ -207,6 +260,12 @@ async def generate_and_save_skills(
             f"No valid requirement found for {requirement_id!r}."
         )
 
+    adapted = _apply_authoritative_requirement_text(
+        adapted=adapted,
+        requirement_id=requirement_id,
+        original_description=original_description,
+    )
+
     logger.info(
         "Generating skills for requirement_id=%s in session_id=%s; "
         "domain=%s.",
@@ -215,13 +274,29 @@ async def generate_and_save_skills(
         domain,
     )
 
-    skill_set: GeneratedSkillSet = await generate_skills(adapted)
+    try:
+        skill_set: GeneratedSkillSet = await generate_skills(adapted)
+    except Exception:
+        logger.exception(
+            "Skill generation failed for requirement_id=%s, session_id=%s.",
+            requirement_id,
+            session_id,
+        )
+        raise
 
-    saved_skills = await save_skill_set(
-        session=session,
-        skill_set=skill_set,
-        source_requirement_version_id=source_requirement_version_id,
-    )
+    try:
+        saved_skills = await save_skill_set(
+            session=session,
+            skill_set=skill_set,
+            source_requirement_version_id=source_requirement_version_id,
+        )
+    except Exception:
+        logger.exception(
+            "Saving generated skills failed for requirement_id=%s, session_id=%s.",
+            requirement_id,
+            session_id,
+        )
+        raise
 
     results: list[dict] = []
 
