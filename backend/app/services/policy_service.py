@@ -81,45 +81,126 @@ def normalize_optional_text(value: str | None) -> str | None:
     return cleaned
 
 
-def derive_policy_title(
+def extract_policy_metadata_from_requirements(
     requirements: list[ValidatedRequirementInput],
-) -> str:
-    """Derive a readable title from the validated requirement."""
-    for requirement in requirements:
-        category = normalize_optional_text(requirement.category)
+    session_domain: str | None,
+) -> tuple[str, str]:
+    """
+    Extract policy name and domain from authoritative requirement data.
 
-        if category and category.casefold() not in {
-            "general",
-            "other",
-            "unknown",
-        }:
-            if "policy" in category.casefold():
-                return category
+    Priority:
+    1. policy_name from requirement JSON.
+    2. Requirement topic/category as policy name.
+    3. Domain from requirement JSON.
+    4. Domain from the linked requirement session.
 
-            return f"{category} Policy"
+    Do not infer policy names from arbitrary requirement text.
+    Do not filter domain values such as General, Other or Unknown.
+    """
 
-    if requirements:
-        requirement_text = normalize_optional_text(
-            requirements[0].text
+    if not requirements:
+        raise ValueError(
+            "At least one source requirement is required."
         )
 
-        if requirement_text:
-            words = requirement_text.rstrip(".!?").split()[:7]
-            title = " ".join(words)
+    policy_names: list[str] = []
+    topics: list[str] = []
+    domains: list[str] = []
 
-            return title[0].upper() + title[1:] if title else "Policy Draft"
+    for requirement in requirements:
+        payload: dict[str, Any] = {}
 
-    return "Policy Draft"
+        requirement_text = getattr(requirement, "text", None)
+
+        # Extract structured metadata from requirement JSON.
+        if isinstance(requirement_text, str):
+            try:
+                parsed = json.loads(requirement_text)
+            except (TypeError, json.JSONDecodeError):
+                parsed = None
+
+            if isinstance(parsed, dict):
+                payload = parsed
+
+        # Extract policy name.
+        policy_name = normalize_optional_text(
+            payload.get("policy_name")
+        )
+
+        if policy_name:
+            policy_names.append(policy_name)
+
+        # Extract requirement topic.
+        topic = normalize_optional_text(
+            getattr(requirement, "category", None)
+        )
+
+        if topic:
+            topics.append(topic)
+
+        # Extract domain.
+        domain = normalize_optional_text(
+            payload.get("domain")
+        )
+
+        if domain:
+            domains.append(domain)
+
+    # Resolve policy name.
+    unique_policy_names = list(dict.fromkeys(policy_names))
+
+    if len(unique_policy_names) > 1:
+        raise ValueError(
+            "Conflicting policy_name values found in requirements: "
+            + ", ".join(unique_policy_names)
+        )
+
+    if unique_policy_names:
+        policy_title = unique_policy_names[0]
+
+    else:
+        unique_topics = list(dict.fromkeys(topics))
+
+        if len(unique_topics) > 1:
+            raise ValueError(
+                "Multiple requirement topics were found without "
+                "a single policy_name."
+            )
+
+        if not unique_topics:
+            raise ValueError(
+                "No policy_name or requirement topic was found."
+            )
+
+        # Use the requirement topic exactly as provided.
+        policy_title = unique_topics[0]
+
+    # Resolve domain.
+    unique_domains = list(dict.fromkeys(domains))
+
+    if len(unique_domains) > 1:
+        raise ValueError(
+            "Conflicting domain values found in requirements: "
+            + ", ".join(unique_domains)
+        )
+
+    if unique_domains:
+        policy_domain = unique_domains[0]
+    else:
+        policy_domain = normalize_optional_text(session_domain)
+
+    if not policy_domain:
+        raise ValueError(
+            "No domain was found in the requirement or its linked session."
+        )
+
+    return policy_title, policy_domain
 
 
 def reject_placeholder_policy_content(
     output: StructuredPolicyGenerationOutput,
 ) -> None:
-    """Reject empty sections and literal placeholder content."""
-    if not normalize_optional_text(output.title):
-        raise ValueError(
-            "Policy generation returned an empty or placeholder title."
-        )
+    """Reject empty or placeholder policy sections."""
 
     if not output.sections:
         raise ValueError(
@@ -136,10 +217,11 @@ def reject_placeholder_policy_content(
             "undefined",
         }:
             raise ValueError(
-                f"Section '{section.title}' contains empty or placeholder "
-                "content. Check the policy-generation prompt."
+                f"Section '{section.title}' contains empty or "
+                "placeholder content. Check the policy-generation prompt."
             )
-
+            
+            
 
 def format_policy_document_text(
     title: str,
@@ -381,11 +463,23 @@ async def generate_and_save_policy(
     session: AsyncSession,
     request: PolicyGenerationRequest,
 ) -> PolicyResponse:
-    """Generate, validate, and persist a policy using backend configuration."""
+    """Generate, validate and persist a policy from authoritative requirements."""
 
-    # 1. Validate request identifiers.
-    session_id = request.session_id.strip()
-    requirement_id = request.requirement_id.strip()
+    # ---------------------------------------------------------
+    # 1. Validate request identifiers
+    # ---------------------------------------------------------
+
+    session_id = (
+        request.session_id.strip()
+        if request.session_id
+        else ""
+    )
+
+    requirement_id = (
+        request.requirement_id.strip()
+        if request.requirement_id
+        else ""
+    )
 
     if not session_id:
         raise ValueError("'session_id' cannot be empty.")
@@ -393,13 +487,18 @@ async def generate_and_save_policy(
     if not requirement_id:
         raise ValueError("'requirement_id' cannot be empty.")
 
-    # 2. Load the confirmed requirement.
-    adapted_reqs, requirement_domain, original_description = (
-        await load_single_requirement(
-            session=session,
-            requirement_id=requirement_id,
-            session_id=session_id,
-        )
+    # ---------------------------------------------------------
+    # 2. Load authoritative requirement
+    # ---------------------------------------------------------
+
+    (
+        adapted_reqs,
+        requirement_domain,
+        original_description,
+    ) = await load_single_requirement(
+        session=session,
+        requirement_id=requirement_id,
+        session_id=session_id,
     )
 
     if not adapted_reqs:
@@ -408,33 +507,39 @@ async def generate_and_save_policy(
             f"in session_id='{session_id}'."
         )
 
-    # 3. Configure policy metadata from the validated requirements.
-    # Do not require the client to provide title, domain, or description.
-    effective_title = derive_policy_title(adapted_reqs)
+    # ---------------------------------------------------------
+    # 3. Extract policy name and domain from requirement
+    # ---------------------------------------------------------
 
-    policy_domain = (
-        normalize_optional_text(requirement_domain)
-        or next(
-            (
-                value
-                for requirement in adapted_reqs
-                if (value := normalize_optional_text(
-                    getattr(requirement, "category", None)
-                ))
-                and value.casefold() not in {"general", "other", "unknown"}
-            ),
-            "General",
+    effective_title, policy_domain = (
+        extract_policy_metadata_from_requirements(
+            requirements=adapted_reqs,
+            session_domain=requirement_domain,
         )
     )
 
-    policy_description = normalize_optional_text(original_description)
+    # Description comes from the original requirement session.
+    policy_description = normalize_optional_text(
+        original_description
+    )
 
     if not policy_description:
         policy_description = (
             "Enterprise policy generated from validated requirements."
         )
 
-    # 4. Preserve or resolve the authoritative source version.
+    logger.info(
+        "Policy metadata resolved: title=%s, domain=%s, "
+        "requirement_id=%s",
+        effective_title,
+        policy_domain,
+        requirement_id,
+    )
+
+    # ---------------------------------------------------------
+    # 4. Resolve authoritative source version
+    # ---------------------------------------------------------
+
     source_version = (
         normalize_optional_text(
             request.source_requirement_version_id
@@ -446,9 +551,14 @@ async def generate_and_save_policy(
         or requirement_id
     )
 
-    # 5. Resolve the slash command through the existing skill loader.
-    # Skill IDs are now resolved internally rather than supplied by the client.
-    skill_command = normalize_optional_text(request.skill_command) or "/policy"
+    # ---------------------------------------------------------
+    # 5. Resolve selected skill
+    # ---------------------------------------------------------
+
+    skill_command = (
+        normalize_optional_text(request.skill_command)
+        or "/policy"
+    )
 
     skill_instructions, applied_identifiers = (
         await load_skill_instructions(
@@ -458,7 +568,10 @@ async def generate_and_save_policy(
         )
     )
 
-    # 6. Generate the policy.
+    # ---------------------------------------------------------
+    # 6. Generate policy using extracted metadata
+    # ---------------------------------------------------------
+
     policy_output: StructuredPolicyGenerationOutput = (
         await generate_policy_from_requirements(
             requirements=adapted_reqs,
@@ -467,7 +580,9 @@ async def generate_and_save_policy(
             domain=policy_domain,
             custom_description=policy_description,
             skill_instructions=(
-                skill_instructions if skill_instructions else None
+                skill_instructions
+                if skill_instructions
+                else None
             ),
         )
     )
@@ -477,27 +592,38 @@ async def generate_and_save_policy(
             "The policy-generation agent returned no output."
         )
 
-    # 7. Reject empty or placeholder output.
+    # ---------------------------------------------------------
+    # 7. Validate generated output
+    # ---------------------------------------------------------
+
     reject_placeholder_policy_content(policy_output)
 
-    generated_title = normalize_optional_text(policy_output.title)
-    generated_domain = normalize_optional_text(policy_output.domain)
+    # Do not allow LLM to overwrite requirement metadata.
+    final_title = effective_title
+    final_domain = policy_domain
+
     generated_description = normalize_optional_text(
         policy_output.description
     )
 
-    final_title = generated_title or effective_title
-    final_domain = generated_domain or policy_domain
-    final_description = generated_description or policy_description
+    final_description = (
+        generated_description or policy_description
+    )
 
-    # 8. Validate against the loaded requirements.
+    # ---------------------------------------------------------
+    # 8. Validate policy against authoritative requirements
+    # ---------------------------------------------------------
+
     validation_report = validate_policy_draft(
         sections=policy_output.sections,
         requirements=adapted_reqs,
         unresolved_items=policy_output.unresolved_items,
     )
 
-    # 9. Persist the policy and initial version.
+    # ---------------------------------------------------------
+    # 9. Save policy and initial version
+    # ---------------------------------------------------------
+
     policy = await policy_repository.create_policy(
         session=session,
         title=final_title,
@@ -505,7 +631,9 @@ async def generate_and_save_policy(
         sections=policy_output.sections,
         description=final_description,
         applied_skill_ids=applied_identifiers,
-        validation_status=validation_report.overall_status.lower(),
+        validation_status=(
+            validation_report.overall_status.lower()
+        ),
         validation_report=validation_report,
         source_requirement_version_id=source_version,
         change_summary=(
@@ -513,7 +641,10 @@ async def generate_and_save_policy(
         ),
     )
 
-    # 10. Save the policy document and its versioned archive.
+    # ---------------------------------------------------------
+    # 10. Format policy document
+    # ---------------------------------------------------------
+
     text_content = format_policy_document_text(
         title=policy.title,
         domain=policy.domain,
@@ -529,6 +660,10 @@ async def generate_and_save_policy(
         text_content,
     )
 
+    # ---------------------------------------------------------
+    # 11. Return policy response
+    # ---------------------------------------------------------
+
     v1_record = policy.versions[0]
 
     return _build_policy_response(
@@ -536,7 +671,6 @@ async def generate_and_save_policy(
         v1_record,
         policy_text_path=saved_path,
     )
-
 
 
 async def _resolve_confirmed_requirement_version_id(

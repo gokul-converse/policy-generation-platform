@@ -1,72 +1,20 @@
 ================================================================================
-ENTERPRISE POLICY: REQUIREMENT POLICY
-Domain: it_security | Version: 1 | Status: DRAFT
+ENTERPRISE POLICY: EMPLOYEE LEAVE POLICY
+Domain: hr | Version: 1 | Status: DRAFT
 ================================================================================
 
 ## Executive Summary
-Create a company IT security policy covering password requirements, multi-factor authentication, data access permissions, device security, incident reporting, and employee responsibilities for protecting confidential information.
+I want to create an employee leave policy. It should define leave eligibility, annual leave limits, approval workflow, and rules for applying for leave.
 
 ## Table of Contents
 1. Purpose and Scope
-2. Password Management
-3. Multi-Factor Authentication (MFA)
-4. Access Provisioning and Least Privilege
-5. Data Classification and Protection
-6. Incident Reporting
-7. Employee Responsibilities
 
 --------------------------------------------------------------------------------
 Section 1: Purpose and Scope [SEC-001]
 --------------------------------------------------------------------------------
-Purpose: Establish and communicate the organization's IT security controls for password management, multi-factor authentication, data access permissions, device usage, incident reporting, and employee responsibilities for protecting confidential information.
+Purpose: Establish a structured approach to employee leaves within the HR domain, defining eligibility, entitlements, accrual, carryover, expiry, encashment, and the approval workflow by leave type, as well as the process to apply for leave. Scope: Applies to all regular employees; covers eligibility criteria, annual leave entitlements and accrual, carryover/expiry/encashment rules, per-leave-type approval workflows, and application requirements. Status: The validated requirement indicates that final policy rules are not yet defined and clarifications are required for eligibility, entitlements, accrual, carryover, and approval workflows. The draft identifies unresolved policy details and notes a testing assumption from the validated input: a probation duration of 3 months; accrual timing after probation is a test assumption and not an approved policy.
 
-Scope: Policy applies to all corporate systems, confidential and sensitive data, employees, contractors, and guests with access. It covers production, testing, development, legacy systems, and BYOD devices accessing company resources. Personal systems without company access and public data are out of scope unless required by company security standards.
-
-Stakeholders: IT Security, HR, Managers, System Owners, Data Owners, Employees, Contractors, Guests.
-
-Traceable Requirements: 1a367a18-7008-4c40-9fff-2e1f29b1139f
-
---------------------------------------------------------------------------------
-Section 2: Password Management [SEC-002]
---------------------------------------------------------------------------------
-Password controls derived from the validated requirements: • Enforce a 14-character minimum password length. • Block compromised passwords. • Prevent reuse of the last 10 passwords. • Lock accounts after 10 failed login attempts. • Enable multi-factor authentication (MFA). • Enforce secure password resets. • Rotate passwords when compromised.
-
-Traceable Requirements: 1a367a18-7008-4c40-9fff-2e1f29b1139f
-
---------------------------------------------------------------------------------
-Section 3: Multi-Factor Authentication (MFA) [SEC-003]
---------------------------------------------------------------------------------
-MFA must be used for access to corporate systems using authenticator apps or hardware security keys. SMS-based MFA is permitted only where approved. Exceptions require a documented business justification, manager and IT security approvals, and an expiry date. Unresolved requests escalate to the security lead, and exceptions should be revoked when no longer needed.
-
-Traceable Requirements: 1a367a18-7008-4c40-9fff-2e1f29b1139f
-
---------------------------------------------------------------------------------
-Section 4: Access Provisioning and Least Privilege [SEC-004]
---------------------------------------------------------------------------------
-Access provisioning follows the principle of least privilege. Employees submit access requests; approvals are required from the employee's manager and the system owner. IT provisions access; HR is notified of terminations or role changes; IT revokes or updates access promptly.
-
-Traceable Requirements: 1a367a18-7008-4c40-9fff-2e1f29b1139f
-
---------------------------------------------------------------------------------
-Section 5: Data Classification and Protection [SEC-005]
---------------------------------------------------------------------------------
-Data is classified as Public, Internal, Confidential, or Restricted. Data owners assign classifications. Access controls, encryption, and retention requirements are appropriate to each level. IT Security reviews and enforces compliance. Encryption in transit and at rest is used as appropriate; retention rules align with classification.
-
-Traceable Requirements: 1a367a18-7008-4c40-9fff-2e1f29b1139f
-
---------------------------------------------------------------------------------
-Section 6: Incident Reporting [SEC-006]
---------------------------------------------------------------------------------
-Incident reporting is established with escalation to IT Security. Incidents are logged and managed according to defined processes.
-
-Traceable Requirements: 1a367a18-7008-4c40-9fff-2e1f29b1139f
-
---------------------------------------------------------------------------------
-Section 7: Employee Responsibilities [SEC-007]
---------------------------------------------------------------------------------
-Employees have responsibilities to protect confidential information; comply with this policy; do not share credentials; report suspected incidents; and complete security training as directed.
-
-Traceable Requirements: 1a367a18-7008-4c40-9fff-2e1f29b1139f
+Traceable Requirements: 4809a182-007e-41e8-9372-80e60ad3dd87
 
 ================================================================================
 END OF POLICY DOCUMENT
