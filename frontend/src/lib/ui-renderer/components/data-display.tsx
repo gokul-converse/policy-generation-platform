@@ -105,12 +105,12 @@ export const List: React.FC<ListProps & { renderChild?: (child: any) => React.Re
         // Handle object format with id and content
         return (
           <li key={item.id || index} className="text-gray-700 dark:text-gray-300">
-            {typeof item.content === 'string'
-              ? item.content
-              : renderChild
-              ? renderChild(item.content)
-              : null}
-          </li>
+          {typeof item.content === 'string'
+            ? item.content
+            : renderChild
+            ? renderChild(item.content)
+            : null}
+        </li>
         );
       })}
     </ListTag>

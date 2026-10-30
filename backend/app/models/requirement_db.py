@@ -34,9 +34,7 @@ class RequirementSession(Base):
     )
 
     __table_args__ = (
-        CheckConstraint(
-            "domain IN ('hr','finance','it_security','general')"
-        ),
+        
         CheckConstraint(
             "status IN ('gathering','awaiting_clarification',"
             "'validating','ready_for_confirmation','confirmed','cancelled')"
@@ -306,9 +304,6 @@ class Document(Base):
     __table_args__ = (
         UniqueConstraint("file_path", "version"),
         CheckConstraint(
-            "domain IN ('hr','finance','it_security','general')"
-        ),
-        CheckConstraint(
             "approval_status IN ('approved','pending_review','rejected',"
             "'sample_not_approved','unknown')"
         ),
@@ -423,9 +418,6 @@ class ApprovalRule(Base):
     data_status = Column(Text, nullable=False, server_default=text("'sample'"))
 
     __table_args__ = (
-        CheckConstraint(
-            "domain IN ('hr','finance','it_security','general')"
-        ),
         CheckConstraint("data_status IN ('sample','verified','unknown')"),
     )
 

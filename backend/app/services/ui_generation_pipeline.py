@@ -15,7 +15,7 @@ from app.agents.repair.agent import repair_ui_json
 logger = logging.getLogger(__name__)
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-SCHEMA_PATH = BACKEND_DIR / "schemas" / "policy-ui-contract.schema.json"
+SCHEMA_PATH = BACKEND_DIR / "ui_contracts" / "policy-ui-contract.schema.json"
 
 MAX_REPAIR_ATTEMPTS = 2
 

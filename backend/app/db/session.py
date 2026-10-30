@@ -1,4 +1,3 @@
-
 """Asynchronous SQLite database configuration and FTS5 initialization."""
 
 from collections.abc import AsyncGenerator

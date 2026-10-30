@@ -11,7 +11,7 @@ from app.prompts.json_generation_prompt import UI_JSON_GENERATION_SYSTEM_PROMPT
 # CLOUD_MODEL_GUIDE = BACKEND_DIR / "md_files" / "cloud-model-policy-ui-json-training-guide.md"
 
 BACKEND_DIR = Path(__file__).resolve().parents[3]
-SCHEMA_PATH = BACKEND_DIR / "schemas" / "policy-ui-contract.schema.json"
+SCHEMA_PATH = BACKEND_DIR / "ui_contracts" / "policy-ui-contract.schema.json"
 
 # @lru_cache(maxsize=1)
 # def load_renderer_instructions() -> str:
