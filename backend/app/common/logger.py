@@ -1,8 +1,7 @@
-
 import logging
-from pathlib import Path
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
+from pathlib import Path
 
 # Resolve logs relative to the backend directory.
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -38,6 +37,8 @@ def setup_logging() -> None:
         file_handler = RotatingFileHandler(
             LOG_FILE,
             maxBytes=5 * 1024 * 1024,
+            
+            
             backupCount=3,
             encoding="utf-8",
         )

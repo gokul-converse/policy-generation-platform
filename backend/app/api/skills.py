@@ -2,6 +2,9 @@
 
 from uuid import UUID
 
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.common.logger import get_logger
 from app.db.session import get_db
 from app.models.skill_api import (
@@ -19,8 +22,6 @@ from app.services.skill_service import (
     get_slash_commands,
     list_all_skills,
 )
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
-from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/skills", tags=["Skills"])
 logger = get_logger(__name__)

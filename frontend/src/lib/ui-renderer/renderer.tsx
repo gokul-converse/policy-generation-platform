@@ -10,6 +10,7 @@ import { UIComponentSchema, UISchema, isUISchema } from '@/types/ui-schema';
 import { componentRegistry } from './registry';
 import { executeAction, actionRegistry } from './actions/action-handler';
 import { mergeStyles } from './utils/css-converter';
+import { ThemeProvider } from './theme-provider';
 
 // Import all component implementations
 import * as LayoutComponents from './components/layout';
@@ -17,8 +18,10 @@ import * as TypographyComponents from './components/typography';
 import * as UIElements from './components/ui-elements';
 import * as FormComponents from './components/forms';
 import * as InteractiveComponents from './components/interactive';
+import * as AdvancedInteractiveComponents from './components/advanced-interactive';
 import * as DataDisplayComponents from './components/data-display';
 import * as NavigationComponents from './components/navigation';
+import * as IconComponents from './components/icons';
 
 // Register all components
 componentRegistry.registerMany({
@@ -56,6 +59,16 @@ componentRegistry.registerMany({
   // Interactive
   accordion: InteractiveComponents.Accordion,
   tabs: InteractiveComponents.Tabs,
+  modal: AdvancedInteractiveComponents.Modal,
+  dropdown: AdvancedInteractiveComponents.Dropdown,
+  tooltip: AdvancedInteractiveComponents.Tooltip,
+  stepper: AdvancedInteractiveComponents.Stepper,
+  timeline: AdvancedInteractiveComponents.Timeline,
+  statCard: AdvancedInteractiveComponents.StatCard,
+  infoCard: AdvancedInteractiveComponents.InfoCard,
+  
+  // Icons
+  icon: IconComponents.Icon,
   
   // Data Display
   table: DataDisplayComponents.Table,
@@ -240,18 +253,23 @@ export const JSONUIRenderer: React.FC<JSONUIRendererProps> = ({
       ) : null;
     }
 
+    // Extract theme if available
+    const theme = isUISchema(schema) ? schema.theme : undefined;
+
     return (
-      <div className="ui-renderer">
-        {components.map((component, index) => (
-          <ComponentRenderer
-            key={component.props?.id || index}
-            component={component}
-            dataContext={dataContext}
-            debug={debug}
-            onAction={onAction}
-          />
-        ))}
-      </div>
+      <ThemeProvider theme={theme}>
+        <div className="ui-renderer">
+          {components.map((component, index) => (
+            <ComponentRenderer
+              key={component.props?.id || index}
+              component={component}
+              dataContext={dataContext}
+              debug={debug}
+              onAction={onAction}
+            />
+          ))}
+        </div>
+      </ThemeProvider>
     );
   } catch (err) {
     const error = err instanceof Error ? err : new Error('Unknown rendering error');
@@ -327,5 +345,7 @@ export * from './components/typography';
 export * from './components/ui-elements';
 export * from './components/forms';
 export * from './components/interactive';
+export * from './components/advanced-interactive';
 export * from './components/data-display';
 export * from './components/navigation';
+export * from './components/icons';

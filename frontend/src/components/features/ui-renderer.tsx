@@ -23,7 +23,7 @@ export const UIRenderer: React.FC<UIRendererProps> = ({ components }) => {
 };
 
 const ComponentRenderer: React.FC<{ component: UIComponent }> = ({ component }) => {
-  switch (component.type) {
+  switch (component?.type) {
     case 'header':
       return <HeaderComponent {...component.props} />;
     case 'section':

@@ -330,7 +330,7 @@ async def load_single_requirement(
     requirement = ValidatedRequirementInput(
         requirement_id=str(row.requirement_id),
         text=row.description.strip(),
-        category=row.topic or row.domain,
+        category=row.topic,
         numeric_values=extract_numbers_and_units(row.description),
         status=row.requirement_status,
         metadata={"session_id": str(row.session_id)},

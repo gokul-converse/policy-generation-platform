@@ -1,4 +1,3 @@
-
 """Validated models for dynamically generated domain instructions."""
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
