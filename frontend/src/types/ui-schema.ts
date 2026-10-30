@@ -41,6 +41,11 @@ export type ComponentType =
   | 'tabs'
   | 'modal'
   | 'dropdown'
+  | 'tooltip'
+  | 'stepper'
+  | 'timeline'
+  | 'statCard'
+  | 'infoCard'
   // Data Display
   | 'table'
   | 'list'
@@ -534,6 +539,25 @@ export interface ComputedConfig {
 }
 
 // ============================================================================
+// Theme Configuration
+// ============================================================================
+
+export interface ThemeConfig {
+  primary?: string;
+  secondary?: string;
+  success?: string;
+  warning?: string;
+  danger?: string;
+  info?: string;
+  background?: string;
+  surface?: string;
+  text?: string;
+  textSecondary?: string;
+  border?: string;
+  mode?: 'light' | 'dark';
+}
+
+// ============================================================================
 // Main Schema
 // ============================================================================
 
@@ -553,6 +577,7 @@ export interface UISchema {
     author?: string;
     createdAt?: string;
   };
+  theme?: ThemeConfig;
   dataSources?: DataSource[];
   actions?: ActionDefinition[];
   components: UIComponentSchema[];

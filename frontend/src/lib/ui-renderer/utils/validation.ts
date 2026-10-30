@@ -40,6 +40,16 @@ export function validateUISchema(schema: unknown): ValidationResult {
 
   const components = isUISchema(schema) ? schema.components : schema;
 
+  // Validate theme if present
+  if (isUISchema(schema) && schema.theme) {
+    validateTheme(schema.theme, 'theme', errors);
+  }
+
+  // Validate actions if present
+  if (isUISchema(schema) && schema.actions) {
+    validateActions(schema.actions, 'actions', errors);
+  }
+
   // Validate each component
   components.forEach((component, index) => {
     validateComponent(component, `components[${index}]`, errors);
@@ -215,6 +225,68 @@ function sanitizeComponent(component: UIComponentSchema): UIComponentSchema {
   if (component?.condition) sanitized.condition = component.condition;
 
   return sanitized;
+}
+
+/**
+ * Validate theme configuration
+ */
+function validateTheme(theme: any, path: string, errors: ValidationError[]): void {
+  if (typeof theme !== 'object') {
+    errors.push({
+      path,
+      message: 'Theme must be an object',
+    });
+    return;
+  }
+
+  // Validate color properties (if present, they should be valid CSS colors)
+  const colorProps = ['primary', 'secondary', 'success', 'warning', 'danger', 'info', 
+                      'background', 'surface', 'text', 'textSecondary', 'border'];
+  
+  colorProps.forEach((prop) => {
+    if (theme[prop] && typeof theme[prop] !== 'string') {
+      errors.push({
+        path: `${path}.${prop}`,
+        message: `Theme color '${prop}' must be a string`,
+      });
+    }
+  });
+
+  // Validate mode if present
+  if (theme.mode && theme.mode !== 'light' && theme.mode !== 'dark') {
+    errors.push({
+      path: `${path}.mode`,
+      message: "Theme mode must be 'light' or 'dark'",
+    });
+  }
+}
+
+/**
+ * Validate actions array
+ */
+function validateActions(actions: any[], path: string, errors: ValidationError[]): void {
+  if (!Array.isArray(actions)) {
+    errors.push({
+      path,
+      message: 'Actions must be an array',
+    });
+    return;
+  }
+
+  actions.forEach((action, index) => {
+    if (!action.id) {
+      errors.push({
+        path: `${path}[${index}].id`,
+        message: 'Action must have an id',
+      });
+    }
+    if (!action.type) {
+      errors.push({
+        path: `${path}[${index}].type`,
+        message: 'Action must have a type',
+      });
+    }
+  });
 }
 
 /**

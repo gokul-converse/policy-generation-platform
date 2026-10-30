@@ -8,8 +8,6 @@
 import React from 'react';
 import { JSONUIRenderer } from '@/lib/ui-renderer';
 import { validateUISchema, getErrorSummary } from '@/lib/ui-renderer/utils';
-import { Navbar } from '@/components/layout/navbar';
-import { Button } from '@/components/ui/button';
 import { UISchema } from '@/types/ui-schema';
 
 // Import examples for quick loading
@@ -84,7 +82,6 @@ export default function JSONPlaygroundPage() {
   const [jsonInput, setJsonInput] = React.useState(JSON.stringify(starterTemplate, null, 2));
   const [schema, setSchema] = React.useState<UISchema | null>(starterTemplate);
   const [error, setError] = React.useState<string | null>(null);
-  const [showPreview, setShowPreview] = React.useState(true);
   const [layout, setLayout] = React.useState<'split' | 'editor' | 'preview'>('split');
 
   // Parse and validate JSON
@@ -139,158 +136,189 @@ export default function JSONPlaygroundPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
-      <Navbar title="JSON Playground" />
+        <div style={{ minHeight: 'calc(100vh - 56px)', background: 'var(--bg)', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
 
-      <div className="flex-1 flex flex-col">
-        {/* Toolbar */}
-        <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3">
-          <div className="max-w-full mx-auto flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Load Example:</span>
-              <Button size="sm" variant="outline" onClick={() => loadExample('fullApp')}>
-                Full App
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => loadExample('dashboard')}>
-                Dashboard
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => loadExample('form')}>
-                Form
-              </Button>
-              <Button size="sm" variant="outline" onClick={() => loadExample('interactive')}>
-                Interactive
-              </Button>
-            </div>
+            {/* Toolbar */}
+                <div style={{
+                  background: 'var(--sf)',
+                  borderBottom: '1px solid var(--ln)',
+                  padding: '10px 24px',
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: '12px',
+                }}>
+                  {/* Example loaders */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--mu)' }}>Load example:</span>
+                    {(['fullApp', 'dashboard', 'form', 'interactive'] as const).map((ex) => (
+                      <button key={ex} className="btn" style={{ height: '32px', fontSize: '13px' }} onClick={() => loadExample(ex)}>
+                        {ex === 'fullApp' ? 'Full App' : ex.charAt(0).toUpperCase() + ex.slice(1)}
+                      </button>
+                    ))}
+                  </div>
 
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant="ghost" onClick={formatJson}>
-                Format
-              </Button>
-              <Button size="sm" variant="ghost" onClick={clearEditor}>
-                Clear
-              </Button>
-              <div className="border-l border-gray-300 dark:border-gray-600 h-6 mx-2" />
-              <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1">
+                      {/* Actions + layout switcher */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button className="ghost" style={{ margin: 0, fontSize: '13px' }} onClick={formatJson}>Format</button>
+                        <button className="ghost" style={{ margin: 0, fontSize: '13px' }} onClick={clearEditor}>Reset</button>
+                        <div style={{ width: '1px', height: '20px', background: 'var(--ln)', margin: '0 4px' }} />
+                        <div className="seg">
+                          {(['split', 'editor', 'preview'] as const).map((v) => (
                 <button
-                  onClick={() => setLayout('split')}
-                  className={`px-3 py-1 text-xs rounded ${
-                    layout === 'split'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400'
-                  }`}
+                  key={v}
+                  className={layout === v ? 'on' : ''}
+                  onClick={() => setLayout(v)}
+                  style={{ textTransform: 'capitalize' }}
                 >
-                  Split
+                  {v}
                 </button>
-                <button
-                  onClick={() => setLayout('editor')}
-                  className={`px-3 py-1 text-xs rounded ${
-                    layout === 'editor'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400'
-                  }`}
-                >
-                  Editor
-                </button>
-                <button
-                  onClick={() => setLayout('preview')}
-                  className={`px-3 py-1 text-xs rounded ${
-                    layout === 'preview'
-                      ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                      : 'text-gray-600 dark:text-gray-400'
-                  }`}
-                >
-                  Preview
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Main Content */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* JSON Editor */}
-          {(layout === 'split' || layout === 'editor') && (
-            <div className={`${layout === 'split' ? 'w-1/2' : 'w-full'} flex flex-col border-r border-gray-200 dark:border-gray-700`}>
-              <div className="bg-gray-100 dark:bg-gray-800 px-4 py-2 border-b border-gray-200 dark:border-gray-700">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">JSON Schema Editor</h3>
-              </div>
-              <div className="flex-1 relative">
-                <textarea
-                  value={jsonInput}
-                  onChange={(e) => handleJsonChange(e.target.value)}
-                  className="absolute inset-0 w-full h-full p-4 font-mono text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 border-0 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 resize-none"
-                  spellCheck={false}
-                  placeholder="Enter JSON schema here..."
-                />
-              </div>
-              {error && (
-                <div className="bg-red-50 dark:bg-red-900/20 border-t border-red-200 dark:border-red-800 px-4 py-3">
-                  <p className="text-sm text-red-800 dark:text-red-200 font-mono whitespace-pre-wrap">
-                    {error}
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Live Preview */}
-          {(layout === 'split' || layout === 'preview') && (
-            <div className={`${layout === 'split' ? 'w-1/2' : 'w-full'} flex flex-col bg-gray-50 dark:bg-gray-900`}>
-              <div className="bg-gray-100 dark:bg-gray-800 px-4 py-2 border-b border-gray-200 dark:border-gray-700">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Live Preview</h3>
-              </div>
-              <div className="flex-1 overflow-auto p-4">
-                {schema ? (
-                  <JSONUIRenderer schema={schema} debug={false} />
-                ) : (
-                  <div className="flex items-center justify-center h-full">
-                    <div className="text-center">
-                      <svg
-                        className="mx-auto h-12 w-12 text-gray-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                        />
-                      </svg>
-                      <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">
-                        {error ? 'Invalid JSON' : 'No Preview'}
-                      </h3>
-                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                        {error ? 'Fix the errors to see the preview' : 'Enter valid JSON to see the preview'}
-                      </p>
+              ))}
+                      </div>
                     </div>
                   </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
 
-        {/* Status Bar */}
-        <div className="bg-gray-100 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 px-4 py-2">
-          <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400">
-            <div className="flex items-center gap-4">
-              <span>Lines: {jsonInput.split('\n').length}</span>
-              <span>Characters: {jsonInput.length}</span>
-              <span className={`flex items-center gap-1 ${error ? 'text-red-600' : 'text-green-600'}`}>
-                <span className={`w-2 h-2 rounded-full ${error ? 'bg-red-600' : 'bg-green-600'}`} />
-                {error ? 'Invalid' : 'Valid'}
-              </span>
-            </div>
-            <div>
-              <span className="text-gray-500 dark:text-gray-500">
-                Tip: Use Ctrl+Space for autocomplete • Ctrl+F to find
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+                    {/* Main content: editor + preview */}
+                    <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: '500px' }}>
+
+                      {/* JSON Editor pane */}
+                      {(layout === 'split' || layout === 'editor') && (
+                            <div style={{
+                              width: layout === 'split' ? '50%' : '100%',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              borderRight: layout === 'split' ? '1px solid var(--ln)' : 'none',
+                            }}>
+                              {/* Pane header */}
+                              <div style={{
+                                background: 'var(--sf)',
+                                borderBottom: '1px solid var(--ln)',
+                                padding: '8px 16px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'space-between',
+                              }}>
+                                <span className="eyebrow" style={{ margin: 0 }}>JSON Schema</span>
+                                <span className="mono" style={{ color: 'var(--mu)' }}>
+                                  {jsonInput.split('\n').length} lines · {jsonInput.length} chars
+                                </span>
+                              </div>
+
+                                {/* Editor textarea */}
+                                <div style={{ flex: 1, position: 'relative' }}>
+                                  <textarea
+                                    value={jsonInput}
+                                    onChange={(e) => handleJsonChange(e.target.value)}
+                                    spellCheck={false}
+                                    placeholder="Enter JSON schema here…"
+                                    style={{
+                                      position: 'absolute',
+                                      inset: 0,
+                                      width: '100%',
+                                      height: '100%',
+                                      padding: '16px',
+                                      fontFamily: 'var(--mono)',
+                                      fontSize: '13px',
+                                      lineHeight: 1.6,
+                                      background: '#FDFCFB',
+                                      color: 'var(--ink)',
+                                      border: 0,
+                                      outline: 0,
+                                      resize: 'none',
+                                    }}
+                                  />
+                                </div>
+
+                                {/* Error banner */}
+                                {error && (
+                                      <div style={{
+                                        borderTop: '1px solid #F1C4C4',
+                                        background: '#FEF3F3',
+                                        padding: '10px 16px',
+                                      }}>
+                                        <p className="mono" style={{ color: '#B4280F', margin: 0, whiteSpace: 'pre-wrap', fontSize: '12px' }}>
+                                          {error}
+                                        </p>
+                                      </div>
+              )}
+                                  </div>
+                                )}
+
+                                {/* Live Preview pane */}
+                                {(layout === 'split' || layout === 'preview') && (
+                                      <div style={{
+                                        width: layout === 'split' ? '50%' : '100%',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        background: 'var(--bg)',
+                                      }}>
+                                        {/* Pane header */}
+                                        <div style={{
+                                          background: 'var(--sf)',
+                                          borderBottom: '1px solid var(--ln)',
+                                          padding: '8px 16px',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          justifyContent: 'space-between',
+                                        }}>
+                                          <span className="eyebrow" style={{ margin: 0 }}>Live Preview</span>
+                                          <span style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: error ? '#B4280F' : 'var(--ac)', fontWeight: 500 }}>
+                                            <span style={{
+                                              width: '7px', height: '7px', borderRadius: '50%',
+                                              background: error ? '#B4280F' : '#3BA17F',
+                                              display: 'inline-block',
+                                            }} />
+                                            {error ? 'Invalid' : 'Valid'}
+                                          </span>
+                                        </div>
+
+                                          {/* Preview content */}
+                                          <div style={{ flex: 1, overflow: 'auto', padding: '16px' }}>
+                                            {schema ? (
+                                              <JSONUIRenderer schema={schema} debug={false} />
+                                            ) : (
+                                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+                                                    <div className="empty" style={{ maxWidth: '280px' }}>
+                                                      <div style={{ marginBottom: '8px', color: 'var(--ln)' }}>
+                                                        <svg width="36" height="36" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ margin: '0 auto', display: 'block' }}>
+                                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                                                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                        </svg>
+                                                      </div>
+                                                      <div style={{ fontWeight: 500, color: 'var(--ink)', marginBottom: '4px' }}>
+                                                        {error ? 'Invalid JSON' : 'No preview'}
+                                                      </div>
+                                                      <div>
+                                                        {error ? 'Fix the errors on the left to see the preview.' : 'Enter a valid JSON schema to render the preview.'}
+                                                      </div>
+                                                    </div>
+                                                  </div>
+                )}
+                                                </div>
+                                              </div>
+                                            )}
+                                          </div>
+
+                                            {/* Status bar */}
+                                            <div style={{
+                                              background: 'var(--sf)',
+                                              borderTop: '1px solid var(--ln)',
+                                              padding: '7px 24px',
+                                              display: 'flex',
+                                              alignItems: 'center',
+                                              justifyContent: 'space-between',
+                                            }}>
+                                              <span className="mono" style={{ color: 'var(--mu)' }}>
+                                                JSON UI Playground
+                                              </span>
+                                              <span className="mono" style={{ color: 'var(--mu)' }}>
+                                                Tip: Format tidies the JSON · Reset restores the starter template
+                                              </span>
+                                            </div>
+
+                                          </div>
+                                        </div>
+                                        );
 }
