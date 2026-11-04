@@ -1,6 +1,6 @@
 /**
  * Action Handler System
- * Manages actions triggered by UI components (onClick, onSubmit, etc.)
+ * Manages actions triggered by UI components (onClick, onSubmit)
  * Designed for future API integration
  */
 
@@ -27,7 +27,7 @@ export interface ActionConfig {
   /** For 'navigate' type */
   url?: string;
   openInNewTab?: boolean;
-  
+
   /** For 'api' type */
   endpoint?: string;
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
@@ -35,19 +35,19 @@ export interface ActionConfig {
   body?: Record<string, any>;
   onSuccess?: string; // Action ID to trigger on success
   onError?: string; // Action ID to trigger on error
-  
+
   /** For 'setState' type */
   stateKey?: string;
   stateValue?: any;
-  
+
   /** For 'submit' type */
   target?: string;
   validation?: boolean;
-  
+
   /** For 'custom' type */
   handler?: string;
   params?: Record<string, any>;
-  
+
   /** General */
   label?: string;
   description?: string;
@@ -117,22 +117,22 @@ export async function executeAction(
     switch (action.type) {
       case 'navigate':
         return await handleNavigate(action.config, context);
-      
+
       case 'api':
         return await handleApiCall(action.config, context);
-      
+
       case 'setState':
         return await handleSetState(action.config, context);
-      
+
       case 'submit':
         return await handleSubmit(action.config, context);
-      
+
       case 'custom':
         return await handleCustom(action.config, context);
-      
+
       case 'log':
         return await handleLog(action.config, context);
-      
+
       default:
         console.warn(`Unknown action type: ${action.type}`);
         return {
@@ -337,10 +337,10 @@ export function registerDefaultHandlers(): void {
   // Policy generation handler
   actionRegistry.registerHandler('generatePolicy', async (context) => {
     console.log('[Handler] Generate Policy', context.formData);
-    
+
     // Simulate API call
     await new Promise((resolve) => setTimeout(resolve, 2000));
-    
+
     return {
       success: true,
       data: {
@@ -357,9 +357,9 @@ export function registerDefaultHandlers(): void {
   // UI generation handler
   actionRegistry.registerHandler('generateUI', async (context) => {
     console.log('[Handler] Generate UI', context);
-    
+
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    
+
     return {
       success: true,
       data: {
@@ -372,9 +372,9 @@ export function registerDefaultHandlers(): void {
   // Generic form submit handler
   actionRegistry.registerHandler('submitForm', async (context) => {
     console.log('[Handler] Submit Form', context.formData);
-    
+
     await new Promise((resolve) => setTimeout(resolve, 1000));
-    
+
     return {
       success: true,
       data: {
