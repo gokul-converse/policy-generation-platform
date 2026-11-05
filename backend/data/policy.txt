@@ -1,21 +1,27 @@
 ================================================================================
-ENTERPRISE POLICY: EMPLOYEE LEAVE POLICY
-Domain: hr | Version: 1 | Status: DRAFT
+ENTERPRISE POLICY: WORK-FROM-HOME POLICY
+Domain: hr | Version: 4 | Status: DRAFT
 ================================================================================
 
 ## Executive Summary
-I want to create an employee leave policy. It should define leave eligibility, annual leave limits, approval workflow, and rules for applying for leave.
+Define eligibility, request process, and remote-work rules for employees working from home to ensure consistency, approvals, and timely handling.
 
 ## Table of Contents
-1. Purpose and Scope
+1. Purpose, Scope, and Stakeholders
+2. Eligibility and Remote Work Rules
+3. Administration, Roles, and Compliance
 
 --------------------------------------------------------------------------------
-Section 1: Purpose and Scope [SEC-001]
+Section 1: Purpose, Scope, and Stakeholders [SEC-001]
 --------------------------------------------------------------------------------
-Purpose: Establish a structured approach to employee leaves within the HR domain, defining eligibility, entitlements, accrual, carryover, expiry, encashment, and the approval workflow by leave type, as well as the process to apply for leave. Scope: Applies to all regular employees; covers eligibility criteria, annual leave entitlements and accrual, carryover/expiry/encashment rules, per-leave-type approval workflows, and application requirements. Status: The validated requirement indicates that final policy rules are not yet defined and clarifications are required for eligibility, entitlements, accrual, carryover, and approval workflows. The draft identifies unresolved policy details and notes a testing assumption from the validated input: a probation duration of 3 months; accrual timing after probation is a test assumption and not an approved policy.
+Purpose: Establish eligibility criteria, the request process, and remote-work rules for employees working from home, ensuring consistency, approvals, and timely handling. Scope: Full-time employees in remote-friendly roles may work from home up to two days per week with manager approval; full-time remote work requires special approval; remote-friendly designation is reviewed annually and updated when job responsibilities change. Stakeholders: Human Resources (HR); Department Managers; Employees; IT Department; Direct Managers/Supervisors.
 
-Traceable Requirements: 4809a182-007e-41e8-9372-80e60ad3dd87
+--------------------------------------------------------------------------------
+Section 2: Eligibility and Remote Work Rules [SEC-002]
+--------------------------------------------------------------------------------
+1) Eligible employees are full-time employees in remote-friendly roles.\n2) Remote-friendly roles are designated based on whether tasks can be performed remotely; HR and department managers approve and annually review the designation, updating it when job responsibilities change.\n3) In eligible roles, employees may work from home up to two days per week with manager approval.\n4) Full-time remote work requires special approval.\n5) Requests to work from home must be submitted through the company’s HR system, including the proposed dates, reason, and manager’s approval.\n6) WFH requests should be reviewed within two business days.
 
-================================================================================
-END OF POLICY DOCUMENT
-================================================================================
+--------------------------------------------------------------------------------
+Section 3: Administration, Roles, and Compliance [SEC-003]
+--------------------------------------------------------------------------------
+Stakeholders: Human Resources (HR); Department Managers; Employees; IT Department; Direct Managers/Supervisors. Roles: HR oversees eligibility determinations and the annual review of remote-friendly designations; HR also supports processing WFH requests through the HR system. Department Managers approve two aspects: (a) the remote-friendly designation and (b) employee requests to work from home as part of manager approval. Employees in eligible roles must submit WFH requests via the HR system and obtain the relevant manager approval. The policy acknowledges IT Department as a stakeholder in remote-work arrangements.

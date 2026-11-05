@@ -236,59 +236,193 @@ def validate_policy_draft(
 
 
 
+
 def validate_policy_modification(
     original_section: PolicySectionModel,
     revised_section: PolicySectionModel,
     instructions: str,
     requirements: list[ValidatedRequirementInput] | list[dict[str, Any]],
 ) -> PolicyValidationReport:
-    """Validate a proposed policy modification before version creation."""
+    """Validate a proposed policy modification before creating a version."""
 
     findings: list[ValidationFinding] = []
-    instruction = (instructions or "").strip()
 
+    instruction = (instructions or "").strip()
     original_content = str(original_section.content or "")
     revised_content = str(revised_section.content or "")
 
-    normalized_revision = re.sub(
-        r"\s+", " ", revised_content.casefold()
-    )
+    def normalize_text(value: str) -> str:
+        return re.sub(r"\s+", " ", value.casefold()).strip()
 
-    # 1. Validate section identity and content.
+    def add_finding(
+        rule_name: str,
+        passed: bool,
+        success_message: str,
+        failure_message: str,
+        details: list[str] | None = None,
+    ) -> None:
+        findings.append(
+            ValidationFinding(
+                rule_name=rule_name,
+                status="PASS" if passed else "FAIL",
+                message=success_message if passed else failure_message,
+                details=details or [],
+            )
+        )
+
+    # --------------------------------------------------
+    # 1. Section identity and content
+    # --------------------------------------------------
     identity_issues: list[str] = []
 
     if revised_section.section_id != original_section.section_id:
-        identity_issues.append(
-            "The revision changed the section_id."
-        )
+        identity_issues.append("The section_id was changed.")
 
     if not str(revised_section.title or "").strip():
-        identity_issues.append(
-            "The revised section has no title."
-        )
+        identity_issues.append("The revised section has no title.")
 
     if not revised_content.strip():
-        identity_issues.append(
-            "The revised section has no content."
-        )
+        identity_issues.append("The revised section has no content.")
 
-    findings.append(
-        ValidationFinding(
-            rule_name="modification_section_identity",
-            status="FAIL" if identity_issues else "PASS",
-            message=(
-                "The revised section identity/content is invalid."
-                if identity_issues
-                else "The revised section retains a valid identity and content."
-            ),
-            details=identity_issues,
-        )
+    add_finding(
+        rule_name="modification_section_identity",
+        passed=not identity_issues,
+        success_message="The revised section retains a valid identity and content.",
+        failure_message="The revised section identity or content is invalid.",
+        details=identity_issues,
     )
 
-    # 2. Detect explicit numeric replacement requests.
+    # --------------------------------------------------
+    # 2. Detect whether content changed
+    # --------------------------------------------------
+    content_changed = (
+        normalize_text(original_content)
+        != normalize_text(revised_content)
+    )
+
+    add_finding(
+        rule_name="modification_content_changed",
+        passed=content_changed,
+        success_message="The policy section content was modified.",
+        failure_message="The policy content was not modified.",
+        details=(
+            []
+            if content_changed
+            else [
+                "The revision agent returned unchanged policy content. "
+                "The requested modification was not applied."
+            ]
+        ),
+    )
+
+    # --------------------------------------------------
+    # 3. Normalize authoritative requirements
+    # --------------------------------------------------
+    normalized_requirements = []
+
+    for raw_requirement in requirements:
+        normalized = _normalize_requirement(raw_requirement)
+
+        if normalized is None:
+            continue
+
+        req_id, source_text, numeric_values = normalized
+
+        if req_id and source_text:
+            normalized_requirements.append(
+                {
+                    "requirement_id": req_id,
+                    "text": source_text,
+                    "numeric_values": numeric_values,
+                }
+            )
+
+    # --------------------------------------------------
+    # 4. Detect explicit numeric replacement requests
+    # --------------------------------------------------
+    number_words = {
+        "zero": "0",
+        "one": "1",
+        "two": "2",
+        "three": "3",
+        "four": "4",
+        "five": "5",
+        "six": "6",
+        "seven": "7",
+        "eight": "8",
+        "nine": "9",
+        "ten": "10",
+        "eleven": "11",
+        "twelve": "12",
+        "thirteen": "13",
+        "fourteen": "14",
+        "fifteen": "15",
+        "sixteen": "16",
+        "seventeen": "17",
+        "eighteen": "18",
+        "nineteen": "19",
+        "twenty": "20",
+    }
+
+    number_pattern = (
+        r"(?:\d+(?:\.\d+)?|"
+        + "|".join(number_words.keys())
+        + r")"
+    )
+
+    unit_pattern = (
+        r"days?|weeks?|months?|years?|hours?|minutes?|"
+        r"business\s+days?|%"
+    )
+
+    replacement_patterns = [
+        re.compile(
+            rf"\bfrom\s+(?P<old>{number_pattern})\s+"
+            rf"(?P<old_unit>{unit_pattern})\s+"
+            rf"to\s+(?P<new>{number_pattern})\s+"
+            rf"(?P<new_unit>{unit_pattern})\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            rf"\b(?:change|set|update)\b.{{0,100}}?"
+            rf"(?P<old>{number_pattern})\s+"
+            rf"(?P<old_unit>{unit_pattern})\s+"
+            rf"(?:to|into)\s+"
+            rf"(?P<new>{number_pattern})\s+"
+            rf"(?P<new_unit>{unit_pattern})\b",
+            re.IGNORECASE,
+        ),
+        re.compile(
+            rf"\breplace\s+(?P<old>{number_pattern})\s+"
+            rf"(?P<old_unit>{unit_pattern})\s+with\s+"
+            rf"(?P<new>{number_pattern})\s+"
+            rf"(?P<new_unit>{unit_pattern})\b",
+            re.IGNORECASE,
+        ),
+    ]
+
+    def normalize_number(value: str) -> str:
+        value = value.casefold().strip()
+        return number_words.get(value, value)
+
+    def normalize_unit(value: str) -> str:
+        value = re.sub(r"\s+", " ", value.casefold().strip())
+
+        aliases = {
+            "day": "days",
+            "business day": "business days",
+            "week": "weeks",
+            "month": "months",
+            "year": "years",
+            "hour": "hours",
+            "minute": "minutes",
+        }
+
+        return aliases.get(value, value)
+
     replacement = None
 
-    for pattern in _NUMERIC_REPLACEMENT_PATTERNS:
+    for pattern in replacement_patterns:
         replacement = pattern.search(instruction)
         if replacement:
             break
@@ -297,106 +431,94 @@ def validate_policy_modification(
     source_conflicts: list[str] = []
 
     if replacement:
-        old_value = replacement.group("old")
-        new_value = replacement.group("new")
+        old_value = normalize_number(replacement.group("old"))
+        new_value = normalize_number(replacement.group("new"))
 
-        old_unit = (
-            replacement.groupdict().get("old_unit") or ""
-        ).casefold()
+        old_unit = normalize_unit(replacement.group("old_unit"))
+        new_unit = normalize_unit(replacement.group("new_unit"))
 
-        new_unit = (
-            replacement.groupdict().get("new_unit") or ""
-        ).casefold()
-
-        expected_unit = new_unit or old_unit
-
-        # Build numeric patterns without confusing 25 with 250.
-        def value_pattern(value: str, unit: str) -> re.Pattern:
-            unit_part = (
-                rf"\s+{re.escape(unit)}\b"
-                if unit
-                else ""
+        if old_unit != new_unit:
+            instruction_issues.append(
+                "The requested numeric replacement uses different units. "
+                "The requested change requires clarification."
             )
-            return re.compile(
-                rf"(?<!\d){re.escape(value)}(?![\d.])"
-                rf"{unit_part}",
+
+        def contains_value(
+            text: str,
+            value: str,
+            unit: str,
+        ) -> bool:
+            pattern = re.compile(
+                rf"(?<!\d){re.escape(value)}(?!\d)"
+                rf"\s+{re.escape(unit)}\b",
                 re.IGNORECASE,
             )
+            return bool(pattern.search(text))
 
-        requested_pattern = value_pattern(
-            new_value, expected_unit
-        )
+        # Check authoritative source requirements.
+        for requirement in normalized_requirements:
+            source_text = normalize_text(requirement["text"])
+            req_id = requirement["requirement_id"]
 
-        # Check authoritative requirements first.
-        for raw_req in requirements:
-            normalized = _normalize_requirement(raw_req)
-
-            if normalized is None:
-                continue
-
-            req_id, source_text, _ = normalized
-
-            source_text_normalized = re.sub(
-                r"\s+", " ", source_text.casefold()
+            old_exists = contains_value(
+                source_text,
+                old_value,
+                old_unit,
             )
 
-            old_pattern = value_pattern(old_value, old_unit)
-            source_new_pattern = value_pattern(
-                new_value, expected_unit
+            new_exists = contains_value(
+                source_text,
+                new_value,
+                new_unit,
             )
 
-            if (
-                old_pattern.search(source_text_normalized)
-                and not source_new_pattern.search(
-                    source_text_normalized
-                )
-            ):
-                old_display = (
-                    f"{old_value} {old_unit}".strip()
-                )
-                new_display = (
-                    f"{new_value} {expected_unit}".strip()
-                )
-
+            if old_exists and not new_exists:
                 source_conflicts.append(
                     f"Requirement {req_id} specifies "
-                    f"'{old_display}', not '{new_display}'. "
+                    f"'{old_value} {old_unit}', not "
+                    f"'{new_value} {new_unit}'. "
                     "Update and validate the authoritative "
                     "requirement before applying this change."
                 )
 
-        # Only report the missing replacement when the source
-        # requirements do not already explain why it was rejected.
-        if (
-            not source_conflicts
-            and not requested_pattern.search(normalized_revision)
-        ):
-            requested_display = (
-                f"{new_value} {expected_unit}".strip()
-            )
-
-            instruction_issues.append(
-                f"Requested replacement value '{requested_display}' "
-                "is absent from the revised section."
-            )
-
-        instruction_issues.extend(source_conflicts)
-
-    findings.append(
-        ValidationFinding(
-            rule_name="modification_instruction_compliance",
-            status="FAIL" if instruction_issues else "PASS",
-            message=(
-                "The requested modification conflicts with authoritative "
-                "requirements or was not applied."
-                if instruction_issues
-                else "The requested modification passed the deterministic checks."
-            ),
-            details=instruction_issues,
+        # The requested value must appear in the revised section.
+        requested_value_present = contains_value(
+            normalize_text(revised_content),
+            new_value,
+            new_unit,
         )
+
+        if not requested_value_present and not source_conflicts:
+            instruction_issues.append(
+                f"The requested replacement value "
+                f"'{new_value} {new_unit}' is absent from "
+                "the revised section."
+            )
+
+    # --------------------------------------------------
+    # 5. Instruction compliance and source compliance
+    # --------------------------------------------------
+    instruction_issues.extend(source_conflicts)
+
+    add_finding(
+        rule_name="modification_instruction_compliance",
+        passed=not instruction_issues,
+        success_message="The requested modification passed deterministic checks.",
+        failure_message="The requested modification was not applied or conflicts with its source.",
+        details=instruction_issues,
     )
 
-    # 3. Preserve all existing requirement mappings.
+    add_finding(
+        rule_name="modification_requirement_compliance",
+        passed=not source_conflicts,
+        success_message="The requested change is consistent with authoritative requirements.",
+        failure_message="The requested change conflicts with authoritative requirements.",
+        details=source_conflicts,
+    )
+
+    # --------------------------------------------------
+    # 6. Preserve requirement mappings
+    # --------------------------------------------------
     original_ids = {
         str(item).strip()
         for item in (original_section.requirement_ids or [])
@@ -410,25 +532,135 @@ def validate_policy_modification(
     }
 
     mapping_issues: list[str] = []
+
     removed_ids = original_ids - revised_ids
+    added_ids = revised_ids - original_ids
 
     if removed_ids:
         mapping_issues.append(
-            "The revision removed existing requirement mappings: "
+            "Existing requirement mappings were removed: "
             + ", ".join(sorted(removed_ids))
         )
 
-    findings.append(
-        ValidationFinding(
-            rule_name="modification_traceability",
-            status="FAIL" if mapping_issues else "PASS",
-            message=(
-                "Requirement mappings were removed."
-                if mapping_issues
-                else "Existing requirement mappings were preserved."
-            ),
-            details=mapping_issues,
+    if added_ids:
+        mapping_issues.append(
+            "Unsupported requirement mappings were added: "
+            + ", ".join(sorted(added_ids))
+        )
+
+    add_finding(
+        rule_name="modification_traceability",
+        passed=not mapping_issues,
+        success_message="Existing requirement mappings were preserved.",
+        failure_message="Requirement mappings were changed.",
+        details=mapping_issues,
+    )
+
+    # --------------------------------------------------
+    # 7. Build final report
+    # --------------------------------------------------
+    return _build_report(findings)
+
+
+
+
+def merge_policy_validation_reports(
+    deterministic_report: PolicyValidationReport,
+    semantic_report: Any,
+    total_requirements: int | None = None,
+) -> PolicyValidationReport:
+    """
+    Merge deterministic and semantic validation reports.
+
+    Deterministic validation checks structure, IDs, coverage,
+    numeric preservation, and placeholders.
+
+    Semantic validation checks actual meaning, compliance,
+    unsupported additions, and contradictions.
+    """
+
+    # --------------------------------------------------
+    # 1. Merge findings
+    # --------------------------------------------------
+
+    combined_findings = [
+        *deterministic_report.findings,
+        *semantic_report.findings,
+    ]
+
+    # --------------------------------------------------
+    # 2. Merge missing requirement IDs
+    # --------------------------------------------------
+
+    missing_requirements = list(
+        dict.fromkeys(
+            [
+                *deterministic_report.missing_requirements,
+                *semantic_report.missing_requirements,
+            ]
         )
     )
 
-    return _build_report(findings)
+    # --------------------------------------------------
+    # 3. Merge clarification items
+    # --------------------------------------------------
+
+    clarification_items = list(
+        dict.fromkeys(
+            [
+                *deterministic_report.clarification_items,
+                *semantic_report.clarification_items,
+            ]
+        )
+    )
+
+    # --------------------------------------------------
+    # 4. Calculate combined coverage
+    # --------------------------------------------------
+
+    if total_requirements is not None and total_requirements > 0:
+        missing_count = min(
+            len(missing_requirements),
+            total_requirements,
+        )
+
+        coverage_score = round(
+            (total_requirements - missing_count)
+            / total_requirements,
+            4,
+        )
+    else:
+        coverage_score = deterministic_report.coverage_score
+
+    # --------------------------------------------------
+    # 5. Determine final validation status
+    # --------------------------------------------------
+
+    all_statuses = [
+        deterministic_report.overall_status,
+        semantic_report.overall_status,
+    ]
+
+    if "FAIL" in all_statuses:
+        overall_status = "FAIL"
+
+    elif (
+        "NEEDS_CLARIFICATION" in all_statuses
+        or clarification_items
+    ):
+        overall_status = "NEEDS_CLARIFICATION"
+
+    else:
+        overall_status = "PASS"
+
+    # --------------------------------------------------
+    # 6. Return the unified report
+    # --------------------------------------------------
+
+    return PolicyValidationReport(
+        overall_status=overall_status,
+        coverage_score=coverage_score,
+        missing_requirements=missing_requirements,
+        findings=combined_findings,
+        clarification_items=clarification_items,
+    )
