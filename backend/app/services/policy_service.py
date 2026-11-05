@@ -1,7 +1,6 @@
 """Application service for generating, validating, persisting, and modifying enterprise policies."""
 
 import json
-from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -11,7 +10,7 @@ from app.agents.policy_generation.policy_generator import (
     revise_policy_section_agent,
 )
 from app.common.logger import get_logger
-from app.config.settings import settings
+from app.db.session import AsyncSessionLocal
 from app.models.policy_api import (
     PolicyGenerationRequest,
     PolicyModificationRequest,
@@ -24,7 +23,6 @@ from app.models.policy_db import Policy, PolicyVersion
 from app.models.skill_api import ValidatedRequirementInput
 from app.repositories import policy_repository
 from app.repositories.skill_repository import (
-    create_next_skill_version,
     get_skill_by_id,
     get_skill_by_name,
 )
@@ -45,13 +43,7 @@ logger = get_logger(__name__)
 
 
 class PolicyModificationRejected(ValueError):
-    """Raised when a modification fails validation after revision.
-
-    Carries the structured validation comparison (as `.comparison`)
-    so the API layer can return it to the frontend in a 409 response,
-    instead of just a plain error string. Subclasses ValueError so
-    any caller still matching on ValueError keeps working unchanged.
-    """
+    """Raised when a policy modification fails validation."""
 
     def __init__(
         self,
@@ -83,20 +75,8 @@ def normalize_optional_text(value: str | None) -> str | None:
 
 def extract_policy_metadata_from_requirements(
     requirements: list[ValidatedRequirementInput],
-    session_domain: str | None,
 ) -> tuple[str, str]:
-    """
-    Extract policy name and domain from authoritative requirement data.
-
-    Priority:
-    1. policy_name from requirement JSON.
-    2. Requirement topic/category as policy name.
-    3. Domain from requirement JSON.
-    4. Domain from the linked requirement session.
-
-    Do not infer policy names from arbitrary requirement text.
-    Do not filter domain values such as General, Other or Unknown.
-    """
+    """Extract policy name and domain from confirmed requirement JSON."""
 
     if not requirements:
         raise ValueError(
@@ -108,93 +88,69 @@ def extract_policy_metadata_from_requirements(
     domains: list[str] = []
 
     for requirement in requirements:
-        payload: dict[str, Any] = {}
+        try:
+            requirement_json = json.loads(requirement.text)
+        except (TypeError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                f"Requirement {requirement.requirement_id!r} "
+                "does not contain valid JSON."
+            ) from exc
 
-        requirement_text = getattr(requirement, "text", None)
+        if not isinstance(requirement_json, dict):
+            raise ValueError(
+                f"Requirement {requirement.requirement_id!r} "
+                "must contain a JSON object."
+            )
 
-        # Extract structured metadata from requirement JSON.
-        if isinstance(requirement_text, str):
-            try:
-                parsed = json.loads(requirement_text)
-            except (TypeError, json.JSONDecodeError):
-                parsed = None
-
-            if isinstance(parsed, dict):
-                payload = parsed
-
-        # Extract policy name.
         policy_name = normalize_optional_text(
-            payload.get("policy_name")
+            requirement_json.get("policy_name")
+        )
+        domain = normalize_optional_text(
+            requirement_json.get("domain")
+        )
+        topic = normalize_optional_text(
+            requirement.category
         )
 
         if policy_name:
             policy_names.append(policy_name)
 
-        # Extract requirement topic.
-        topic = normalize_optional_text(
-            getattr(requirement, "category", None)
-        )
+        if domain:
+            domains.append(domain)
 
         if topic:
             topics.append(topic)
 
-        # Extract domain.
-        domain = normalize_optional_text(
-            payload.get("domain")
-        )
-
-        if domain:
-            domains.append(domain)
-
-    # Resolve policy name.
+    # Resolve the policy title.
     unique_policy_names = list(dict.fromkeys(policy_names))
 
     if len(unique_policy_names) > 1:
         raise ValueError(
-            "Conflicting policy_name values found in requirements: "
-            + ", ".join(unique_policy_names)
+            "Conflicting policy_name values found in requirements."
         )
 
     if unique_policy_names:
         policy_title = unique_policy_names[0]
-
     else:
         unique_topics = list(dict.fromkeys(topics))
 
-        if len(unique_topics) > 1:
+        if len(unique_topics) != 1:
             raise ValueError(
-                "Multiple requirement topics were found without "
-                "a single policy_name."
+                "A single policy_name or requirement topic is required."
             )
 
-        if not unique_topics:
-            raise ValueError(
-                "No policy_name or requirement topic was found."
-            )
-
-        # Use the requirement topic exactly as provided.
         policy_title = unique_topics[0]
 
-    # Resolve domain.
+    # Domain must come from the confirmed requirement JSON.
     unique_domains = list(dict.fromkeys(domains))
 
-    if len(unique_domains) > 1:
+    if len(unique_domains) != 1:
         raise ValueError(
-            "Conflicting domain values found in requirements: "
-            + ", ".join(unique_domains)
+            "A single domain must be present in the confirmed "
+            "requirement JSON."
         )
 
-    if unique_domains:
-        policy_domain = unique_domains[0]
-    else:
-        policy_domain = normalize_optional_text(session_domain)
-
-    if not policy_domain:
-        raise ValueError(
-            "No domain was found in the requirement or its linked session."
-        )
-
-    return policy_title, policy_domain
+    return policy_title, unique_domains[0]
 
 
 def reject_placeholder_policy_content(
@@ -220,8 +176,8 @@ def reject_placeholder_policy_content(
                 f"Section '{section.title}' contains empty or "
                 "placeholder content. Check the policy-generation prompt."
             )
-            
-            
+
+
 
 def format_policy_document_text(
     title: str,
@@ -231,13 +187,16 @@ def format_policy_document_text(
     description: str | None = None,
     status: str = "draft",
 ) -> str:
-    """Format structured policy sections into an enterprise text document."""
+    """Format policy sections into a clean enterprise text document.
+
+    Requirement IDs are intentionally excluded from the generated
+    policy document. They remain available in the structured policy
+    data for internal traceability and validation.
+    """
 
     lines: list[str] = [
-        "=" * 80,
         f"ENTERPRISE POLICY: {title.upper()}",
         f"Domain: {domain} | Version: {version} | Status: {status.upper()}",
-        "=" * 80,
         "",
     ]
 
@@ -245,132 +204,167 @@ def format_policy_document_text(
         lines.extend(
             [
                 "## Executive Summary",
+                "",
                 description.strip(),
                 "",
             ]
         )
 
-    lines.append("## Table of Contents")
+    if sections:
+        lines.append("## Table of Contents")
+        lines.append("")
 
-    for i, sec in enumerate(sections, start=1):
-        lines.append(f"{i}. {sec.title}")
+        for index, section in enumerate(sections, start=1):
+            lines.append(f"{index}. {section.title}")
 
-    lines.append("")
+        lines.append("")
 
-    for i, sec in enumerate(sections, start=1):
+    for index, section in enumerate(sections, start=1):
         lines.extend(
             [
-                "-" * 80,
-                f"Section {i}: {sec.title} [{sec.section_id}]",
-                "-" * 80,
-                sec.content.strip(),
+                f"## Section {index}: {section.title}",
+                "",
+                section.content.strip(),
                 "",
             ]
         )
 
-        if sec.requirement_ids:
-            lines.append(
-                f"Traceable Requirements: {', '.join(sec.requirement_ids)}"
-            )
-            lines.append("")
-
-    lines.extend(
-        [
-            "=" * 80,
-            "END OF POLICY DOCUMENT",
-            "=" * 80,
-        ]
-    )
-
-    return "\n".join(lines)
+    return "\n".join(lines).strip() + "\n"
 
 
-def save_policy_document_to_file(
-    policy_id: UUID,
-    version: int,
-    content_text: str,
-) -> str:
-    """Write the current policy and a versioned archive to disk."""
-
-    data_dir = settings.BACKEND_ROOT / "data"
-    data_dir.mkdir(parents=True, exist_ok=True)
-
-    policies_dir = data_dir / "policies"
-    policies_dir.mkdir(parents=True, exist_ok=True)
-
-    primary_file = data_dir / "policy.txt"
-    primary_file.write_text(content_text, encoding="utf-8")
-
-    versioned_file = policies_dir / f"{policy_id}_v{version}.txt"
-    versioned_file.write_text(content_text, encoding="utf-8")
-
-    logger.info(
-        "Saved policy to %s and %s",
-        primary_file,
-        versioned_file,
-    )
-
-    return "data/policy.txt"
 
 
 async def load_skill_instructions(
     session: AsyncSession,
     skill_command: str | None,
-    skill_ids: list[UUID],
-) -> tuple[str, list[str]]:
-    """Resolve explicitly selected built-in and generated skills."""
+    skill_ids: list[UUID] | None = None,
+) -> tuple[list[str], list[str], list[str]]:
+    """
+    Resolve generated skills and their latest database versions.
 
-    applied_identifiers: list[str] = []
+    Built-in filesystem skills are not loaded here.
+    Only generated skills stored in the database are supported.
 
-    # Resolve an explicitly requested slash command.
-    if skill_command:
-        cmd_clean = skill_command.strip().lstrip("/")
+    Returns:
+        (
+            builtin_skill_names,       # Always empty
+            applied_skill_ids,         # Stable generated skill IDs
+            applied_skill_version_ids, # Exact generated skill version IDs
+        )
+    """
 
-        if not cmd_clean:
-            raise ValueError("The skill command cannot be empty.")
+    applied_skill_ids: list[str] = []
+    applied_skill_version_ids: list[str] = []
 
-        builtin_dir = settings.BACKEND_ROOT / "skills" / cmd_clean
+    selected_ids = list(dict.fromkeys(skill_ids or []))
 
-        if builtin_dir.is_dir():
-            skill_file = builtin_dir / "SKILL.md"
+    # Resolve the skill command against the generated skills table.
+    command_name = normalize_optional_text(skill_command)
 
-            if not skill_file.is_file():
-                raise ValueError(
-                    f"Built-in skill '{cmd_clean}' has no SKILL.md file."
-                )
+    if command_name:
+        command_name = command_name.lstrip("/").strip()
 
-            applied_identifiers.append(cmd_clean)
-
-        else:
-            db_skill = await get_skill_by_name(session, cmd_clean)
-
-            if not db_skill or not db_skill.versions:
-                raise ValueError(f"Skill '{cmd_clean}' was not found.")
-
-            applied_identifiers.append(str(db_skill.id))
-
-    # Resolve explicitly selected generated skill IDs.
-    for skill_id in skill_ids:
-        db_skill = await get_skill_by_id(session, skill_id)
-
-        if not db_skill or not db_skill.versions:
+        if not command_name:
             raise ValueError(
-                f"Selected skill '{skill_id}' was not found "
-                "or has no saved versions."
+                "The skill command cannot be empty."
             )
 
-        identifier = str(db_skill.id)
+        database_skill = await get_skill_by_name(
+            session,
+            command_name,
+        )
 
-        if identifier not in applied_identifiers:
-            applied_identifiers.append(identifier)
+        if database_skill is None:
+            raise ValueError(
+                f"Generated skill '{command_name}' was not found in the database."
+            )
 
-    # SkillsProvider loads skill instructions separately.
-    return "", applied_identifiers
+        if not database_skill.versions:
+            raise ValueError(
+                f"Generated skill '{command_name}' has no saved versions."
+            )
 
+        latest_version = max(
+            database_skill.versions,
+            key=lambda item: item.version,
+        )
 
-def _stored_clarification_items(version_record: PolicyVersion) -> list[str]:
-    """Read deduplicated unresolved clarification items from a saved version."""
-    raw_report = getattr(version_record, "validation_report_json", None)
+        if not normalize_optional_text(latest_version.content):
+            raise ValueError(
+                f"Generated skill '{command_name}' has no stored content."
+            )
+
+        applied_skill_ids.append(
+            str(database_skill.id)
+        )
+
+        applied_skill_version_ids.append(
+            str(latest_version.id)
+        )
+
+    # Resolve explicitly selected generated skill IDs.
+    for skill_id in selected_ids:
+
+        database_skill = await get_skill_by_id(
+            session,
+            skill_id,
+        )
+
+        if database_skill is None:
+            raise ValueError(
+                f"Generated skill '{skill_id}' was not found in the database."
+            )
+
+        if not database_skill.versions:
+            raise ValueError(
+                f"Generated skill '{database_skill.name}' "
+                "has no saved versions."
+            )
+
+        latest_version = max(
+            database_skill.versions,
+            key=lambda item: item.version,
+        )
+
+        if not normalize_optional_text(latest_version.content):
+            raise ValueError(
+                f"Generated skill '{database_skill.name}' "
+                "has no stored content."
+            )
+
+        stable_id = str(database_skill.id)
+        version_id = str(latest_version.id)
+
+        if stable_id not in applied_skill_ids:
+            applied_skill_ids.append(stable_id)
+
+        if version_id not in applied_skill_version_ids:
+            applied_skill_version_ids.append(version_id)
+
+    logger.info(
+        "Resolved generated skills: skill_ids=%s version_ids=%s",
+        applied_skill_ids,
+        applied_skill_version_ids,
+    )
+
+    # No built-in skills are used by the Policy Generation Agent.
+    return (
+        [],
+        applied_skill_ids,
+        applied_skill_version_ids,
+    )
+
+def _stored_clarification_items(
+    version_record: PolicyVersion,
+) -> list[str]:
+    """Read unique unresolved clarification items from a saved version."""
+
+    raw_report = getattr(
+        version_record,
+        "validation_report_json",
+        None,
+    )
+
     if not raw_report or raw_report == "{}":
         return []
 
@@ -387,28 +381,32 @@ def _stored_clarification_items(version_record: PolicyVersion) -> list[str]:
         return []
 
     items = report.get("clarification_items") or []
+
     if not isinstance(items, list):
         return []
 
     cleaned: list[str] = []
     seen: set[str] = set()
+
     for item in items:
         if isinstance(item, str) and item.strip():
             value = item.strip()
+
             if value.casefold() not in seen:
                 cleaned.append(value)
                 seen.add(value.casefold())
+
     return cleaned
 
 
 def _build_policy_response(
     policy: Policy,
     version_record: PolicyVersion,
-    policy_text_path: str = "data/policy.txt",
 ) -> PolicyResponse:
-    """Convert policy database models into a PolicyResponse."""
+    """Convert database policy records into the frontend response."""
 
     raw_sections = json.loads(version_record.content_json)
+
     sections = [
         PolicySectionModel.model_validate(section)
         for section in raw_sections
@@ -421,10 +419,8 @@ def _build_policy_response(
         and version_record.validation_report_json != "{}"
     ):
         try:
-            validation_report = (
-                PolicyValidationReport.model_validate_json(
-                    version_record.validation_report_json
-                )
+            validation_report = PolicyValidationReport.model_validate_json(
+                version_record.validation_report_json
             )
         except Exception:
             logger.exception(
@@ -443,8 +439,10 @@ def _build_policy_response(
         title=policy.title,
         description=policy.description,
         domain=policy.domain,
+        policy_status=policy.status,
         status=version_record.status,
         sections=sections,
+        policy_text=version_record.content_text or "",
         applied_skill_ids=applied_skills,
         source_requirement_version_id=(
             version_record.source_requirement_version_id
@@ -452,34 +450,18 @@ def _build_policy_response(
         validation_status=version_record.validation_status,
         validation_report=validation_report,
         change_summary=version_record.change_summary,
-        policy_text_path=policy_text_path,
         created_at=version_record.created_at,
     )
-
-
-
 
 async def generate_and_save_policy(
     session: AsyncSession,
     request: PolicyGenerationRequest,
 ) -> PolicyResponse:
-    """Generate, validate and persist a policy from authoritative requirements."""
+    """Generate, validate, and persist a policy using DB-backed skill versions."""
 
-    # ---------------------------------------------------------
-    # 1. Validate request identifiers
-    # ---------------------------------------------------------
-
-    session_id = (
-        request.session_id.strip()
-        if request.session_id
-        else ""
-    )
-
-    requirement_id = (
-        request.requirement_id.strip()
-        if request.requirement_id
-        else ""
-    )
+    # 1. Validate request identifiers.
+    session_id = normalize_optional_text(request.session_id)
+    requirement_id = normalize_optional_text(request.requirement_id)
 
     if not session_id:
         raise ValueError("'session_id' cannot be empty.")
@@ -487,103 +469,87 @@ async def generate_and_save_policy(
     if not requirement_id:
         raise ValueError("'requirement_id' cannot be empty.")
 
-    # ---------------------------------------------------------
-    # 2. Load authoritative requirement
-    # ---------------------------------------------------------
-
-    (
-        adapted_reqs,
-        requirement_domain,
-        original_description,
-    ) = await load_single_requirement(
+    # 2. Load confirmed requirements.
+    # Preserve the existing requirement workflow and exact source version.
+    requirements, _, purpose = await load_single_requirement(
         session=session,
         requirement_id=requirement_id,
         session_id=session_id,
-    )
-
-    if not adapted_reqs:
-        raise ValueError(
-            f"No requirement found for requirement_id='{requirement_id}' "
-            f"in session_id='{session_id}'."
-        )
-
-    # ---------------------------------------------------------
-    # 3. Extract policy name and domain from requirement
-    # ---------------------------------------------------------
-
-    effective_title, policy_domain = (
-        extract_policy_metadata_from_requirements(
-            requirements=adapted_reqs,
-            session_domain=requirement_domain,
-        )
-    )
-
-    # Description comes from the original requirement session.
-    policy_description = normalize_optional_text(
-        original_description
-    )
-
-    if not policy_description:
-        policy_description = (
-            "Enterprise policy generated from validated requirements."
-        )
-
-    logger.info(
-        "Policy metadata resolved: title=%s, domain=%s, "
-        "requirement_id=%s",
-        effective_title,
-        policy_domain,
-        requirement_id,
-    )
-
-    # ---------------------------------------------------------
-    # 4. Resolve authoritative source version
-    # ---------------------------------------------------------
-
-    source_version = (
-        normalize_optional_text(
+        source_requirement_version_id=(
             request.source_requirement_version_id
-        )
-        or await _resolve_confirmed_requirement_version_id(
-            session=session,
-            session_id=session_id,
-        )
-        or requirement_id
+        ),
     )
 
-    # ---------------------------------------------------------
-    # 5. Resolve selected skill
-    # ---------------------------------------------------------
+    if not requirements:
+        raise ValueError(
+            f"No confirmed requirement found for {requirement_id!r}."
+        )
 
-    skill_command = (
-        normalize_optional_text(request.skill_command)
-        or "/policy"
+    # 3. Extract policy metadata.
+    policy_title, policy_domain = (
+        extract_policy_metadata_from_requirements(requirements)
     )
 
-    skill_instructions, applied_identifiers = (
-        await load_skill_instructions(
+    # 4. Validate source requirement version.
+    source_version_id = requirements[0].source_version_id
+
+    if not source_version_id:
+        raise ValueError(
+            "The confirmed requirement version ID is missing."
+        )
+
+    if any(
+        item.source_version_id != source_version_id
+        for item in requirements
+    ):
+        raise ValueError(
+            "Requirements were loaded from different source versions."
+        )
+
+    # 5. Resolve generated skills from the database.
+    skill_command = normalize_optional_text(
+        request.skill_command
+    )
+
+    if skill_command:
+        (
+            _,
+            applied_skill_ids,
+            applied_skill_version_ids,
+        ) = await load_skill_instructions(
             session=session,
             skill_command=skill_command,
             skill_ids=[],
         )
+    else:
+        applied_skill_ids = []
+        applied_skill_version_ids = []
+
+    selected_version_uuids = [
+        UUID(version_id)
+        for version_id in applied_skill_version_ids
+    ]
+
+    logger.info(
+        "Generating policy: title=%s, domain=%s, "
+        "source_version=%s, generated_skill_ids=%s, "
+        "generated_skill_versions=%s",
+        policy_title,
+        policy_domain,
+        source_version_id,
+        applied_skill_ids,
+        applied_skill_version_ids,
     )
 
-    # ---------------------------------------------------------
-    # 6. Generate policy using extracted metadata
-    # ---------------------------------------------------------
-
+    # 6. Generate policy using only selected DB-backed skill versions.
     policy_output: StructuredPolicyGenerationOutput = (
         await generate_policy_from_requirements(
-            requirements=adapted_reqs,
-            applied_skills=applied_identifiers,
-            custom_title=effective_title,
+            requirements=requirements,
+            selected_skill_version_ids=selected_version_uuids,
+            session_factory=AsyncSessionLocal,
+            custom_title=policy_title,
             domain=policy_domain,
-            custom_description=policy_description,
-            skill_instructions=(
-                skill_instructions
-                if skill_instructions
-                else None
-            ),
+            custom_description=purpose,
         )
     )
 
@@ -592,129 +558,63 @@ async def generate_and_save_policy(
             "The policy-generation agent returned no output."
         )
 
-    # ---------------------------------------------------------
-    # 7. Validate generated output
-    # ---------------------------------------------------------
-
+    # 7. Reject placeholder content.
     reject_placeholder_policy_content(policy_output)
-
-    # Do not allow LLM to overwrite requirement metadata.
-    final_title = effective_title
-    final_domain = policy_domain
 
     generated_description = normalize_optional_text(
         policy_output.description
     )
 
-    final_description = (
-        generated_description or policy_description
-    )
+    final_description = generated_description or purpose
 
-    # ---------------------------------------------------------
-    # 8. Validate policy against authoritative requirements
-    # ---------------------------------------------------------
-
+    # 8. Validate generated policy against authoritative requirements.
     validation_report = validate_policy_draft(
         sections=policy_output.sections,
-        requirements=adapted_reqs,
+        requirements=requirements,
         unresolved_items=policy_output.unresolved_items,
     )
 
-    # ---------------------------------------------------------
-    # 9. Save policy and initial version
-    # ---------------------------------------------------------
-
-    policy = await policy_repository.create_policy(
-        session=session,
-        title=final_title,
-        domain=final_domain,
-        sections=policy_output.sections,
-        description=final_description,
-        applied_skill_ids=applied_identifiers,
-        validation_status=(
-            validation_report.overall_status.lower()
-        ),
-        validation_report=validation_report,
-        source_requirement_version_id=source_version,
-        change_summary=(
-            "Initial policy draft generated from validated requirements."
-        ),
-    )
-
-    # ---------------------------------------------------------
-    # 10. Format policy document
-    # ---------------------------------------------------------
-
+    # 9. Format policy text.
     text_content = format_policy_document_text(
-        title=policy.title,
-        domain=policy.domain,
+        title=policy_title,
+        domain=policy_domain,
         version=1,
         sections=policy_output.sections,
-        description=policy.description,
+        description=final_description,
         status="draft",
     )
 
-    saved_path = save_policy_document_to_file(
-        policy.id,
-        1,
-        text_content,
+    # 10. Persist policy and exact generated skill references.
+    policy = await policy_repository.create_policy(
+        session=session,
+        title=policy_title,
+        domain=policy_domain,
+        sections=policy_output.sections,
+        content_text=text_content,
+        description=final_description,
+        applied_skill_ids=applied_skill_ids,
+        applied_skill_version_ids=applied_skill_version_ids,
+        validation_status=validation_report.overall_status.lower(),
+        validation_report=validation_report,
+        source_requirement_version_id=source_version_id,
+        change_summary=(
+            "Initial policy draft generated from confirmed requirements."
+        ),
     )
 
-    # ---------------------------------------------------------
-    # 11. Return policy response
-    # ---------------------------------------------------------
+    # 11. Commit database transaction.
+    await session.commit()
 
-    v1_record = policy.versions[0]
+    # 12. Return persisted policy.
+    first_version = max(
+        policy.versions,
+        key=lambda item: item.version,
+    )
 
     return _build_policy_response(
         policy,
-        v1_record,
-        policy_text_path=saved_path,
+        first_version,
     )
-
-
-async def _resolve_confirmed_requirement_version_id(
-    session: AsyncSession,
-    session_id: str,
-) -> str | None:
-    """Look up the latest confirmed/valid requirement_versions snapshot.
-
-    This is the ID that modify_policy_section's resolver checks first,
-    so injecting it at generation time avoids falling through the
-    fragile requirement_id / session-id fallback chain later.
-    """
-    try:
-        result = await session.execute(
-            text(
-                """
-                SELECT requirement_version_id
-                FROM requirement_versions
-                WHERE session_id = :sid
-                  AND validation_status IN ('valid', 'confirmed')
-                ORDER BY version_number DESC
-                LIMIT 1
-                """
-            ),
-            {"sid": session_id},
-        )
-        row = result.first()
-    except SQLAlchemyError:
-        await session.rollback()
-        raise
-
-    if row and row.requirement_version_id:
-        return str(row.requirement_version_id)
-
-    logger.warning(
-        "No confirmed requirement_versions snapshot found for session "
-        "%s at policy-generation time. Falling back to requirement_id "
-        "as the source reference; later section modification may fail "
-        "to resolve requirements if that requirement is ever removed.",
-        session_id,
-    )
-    return None
-
-
 
 
 async def _load_requirements_for_policy_source(
@@ -722,249 +622,165 @@ async def _load_requirements_for_policy_source(
     source_reference: str | None,
     fallback_requirement_ids: list[str] | None = None,
 ) -> list[ValidatedRequirementInput]:
-    """Resolve authoritative requirements from a version, session, or requirement."""
+    """Resolve requirements from the exact confirmed source version."""
 
     source_reference = normalize_optional_text(source_reference)
 
-    # 1. Resolve an exact requirement-version/snapshot ID.
+    # 1. Resolve a requirement-version ID.
     if source_reference:
-        try:
-            result = await session.execute(
-                text(
-                    """
-                    SELECT session_id, requirements_json, validation_status
-                    FROM requirement_versions
-                    WHERE requirement_version_id = :reference
-                    """
-                ),
-                {"reference": source_reference},
-            )
-            snapshot = result.mappings().first()
+        result = await session.execute(
+            text(
+                """
+                SELECT
+                    requirement_version_id,
+                    session_id,
+                    validation_status
+                FROM requirement_versions
+                WHERE requirement_version_id = :reference
+                """
+            ),
+            {"reference": source_reference},
+        )
 
-            if snapshot is not None:
-                validation_status = str(
-                    snapshot["validation_status"] or ""
-                ).strip().lower()
+        version_row = result.mappings().first()
 
-                if validation_status not in {"valid", "confirmed"}:
-                    raise ValueError(
-                        "The referenced requirement version is not "
-                        "validated or confirmed."
-                    )
+        if version_row is not None:
+            version_status = str(
+                version_row["validation_status"] or ""
+            ).strip().lower()
 
-                try:
-                    payload = json.loads(snapshot["requirements_json"])
-                except (TypeError, json.JSONDecodeError) as exc:
-                    raise ValueError(
-                        "The referenced requirement version contains "
-                        "invalid JSON."
-                    ) from exc
-
-                # Support a list, a wrapped list, or one requirement object.
-                if isinstance(payload, list):
-                    requirements_payload = payload
-
-                elif isinstance(payload, dict):
-                    nested = payload.get("requirements")
-
-                    if isinstance(nested, list):
-                        requirements_payload = nested
-
-                    elif any(
-                        key in payload
-                        for key in (
-                            "purpose",
-                            "scope",
-                            "rules",
-                            "policy_name",
-                        )
-                    ):
-                        requirements_payload = [payload]
-
-                    else:
-                        requirements_payload = []
-
-                else:
-                    requirements_payload = []
-
-                if not requirements_payload:
-                    raise ValueError(
-                        "The referenced requirement version contains "
-                        "no requirements."
-                    )
-
-                snapshot_session_id = normalize_optional_text(
-                    str(snapshot["session_id"])
-                    if snapshot["session_id"] is not None
-                    else None
-                )
-
-                if not snapshot_session_id:
-                    raise ValueError(
-                        "The requirement version has no associated session."
-                    )
-
-                # Resolve authoritative records using real IDs from the
-                # existing policy section mappings.
-                loaded_requirements: list[ValidatedRequirementInput] = []
-                seen_requirement_ids: set[str] = set()
-
-                for raw_requirement_id in dict.fromkeys(
-                    fallback_requirement_ids or []
-                ):
-                    requirement_id = normalize_optional_text(
-                        raw_requirement_id
-                    )
-                    if not requirement_id:
-                        continue
-
-                    result = await session.execute(
-                        text(
-                            """
-                            SELECT requirement_id
-                            FROM requirements
-                            WHERE requirement_id = :requirement_id
-                              AND session_id = :session_id
-                            """
-                        ),
-                        {
-                            "requirement_id": requirement_id,
-                            "session_id": snapshot_session_id,
-                        },
-                    )
-
-                    matched_id = result.scalar_one_or_none()
-                    if not matched_id:
-                        continue
-
-                    matched_id = str(matched_id)
-                    if matched_id in seen_requirement_ids:
-                        continue
-
-                    loaded, _, _ = await load_single_requirement(
-                        session=session,
-                        requirement_id=matched_id,
-                        session_id=snapshot_session_id,
-                    )
-
-                    for item in loaded:
-                        item_id = normalize_optional_text(
-                            str(item.requirement_id)
-                            if getattr(item, "requirement_id", None)
-                            else None
-                        )
-
-                        if item_id and item_id not in seen_requirement_ids:
-                            loaded_requirements.append(item)
-                            seen_requirement_ids.add(item_id)
-
-                if loaded_requirements:
-                    return loaded_requirements
-
-                # Direct snapshot adaptation is safe only when every
-                # object already contains a real requirement ID.
-                if all(
-                    isinstance(item, dict)
-                    and normalize_optional_text(item.get("requirement_id"))
-                    for item in requirements_payload
-                ):
-                    normalized = adapt_requirements(requirements_payload)
-                    if normalized:
-                        return normalized
-
+            if version_status not in {
+                "valid",
+                "validated",
+                "confirmed",
+            }:
                 raise ValueError(
-                    "The requirement version contains content, but its "
-                    "requirement IDs could not be resolved to validated "
-                    "records in the snapshot's session."
+                    "The referenced requirement version is not confirmed."
                 )
 
-        except SQLAlchemyError:
-            await session.rollback()
-            raise
+            snapshot_session_id = str(version_row["session_id"])
 
-        # 2. Resolve a session ID.
-        try:
-            loaded, _, _ = await load_requirements_from_session(
-                session=session,
-                session_id=source_reference,
-            )
-            if loaded:
-                return loaded
-        except ValueError:
-            pass
-        except SQLAlchemyError:
-            await session.rollback()
-            raise
-
-        # 3. Resolve a requirement ID and its owning session.
-        try:
+            # Get all requirement IDs belonging to the snapshot session.
             result = await session.execute(
                 text(
                     """
-                    SELECT session_id
+                    SELECT requirement_id
                     FROM requirements
-                    WHERE requirement_id = :requirement_id
+                    WHERE session_id = :session_id
+                    ORDER BY created_at ASC
                     """
                 ),
-                {"requirement_id": source_reference},
+                {"session_id": snapshot_session_id},
             )
-            source_session_id = result.scalar_one_or_none()
 
-            if source_session_id:
-                loaded, _, _ = await load_single_requirement(
-                    session=session,
-                    requirement_id=source_reference,
-                    session_id=str(source_session_id),
+            requirement_rows = result.mappings().all()
+
+            if not requirement_rows:
+                raise ValueError(
+                    "No requirements were found for the referenced "
+                    "requirement version."
                 )
-                if loaded:
-                    return loaded
 
-        except ValueError:
-            pass
-        except SQLAlchemyError:
-            await session.rollback()
-            raise
+            loaded_requirements = []
 
-    # 4. Recover requirements using IDs mapped to existing policy sections.
-    for raw_requirement_id in dict.fromkeys(
-        fallback_requirement_ids or []
-    ):
-        requirement_id = normalize_optional_text(raw_requirement_id)
-        if not requirement_id:
-            continue
+            # Always pass the exact version ID to the adapter.
+            for row in requirement_rows:
+                requirement_id = str(row["requirement_id"])
 
-        try:
-            result = await session.execute(
-                text(
-                    """
-                    SELECT session_id
-                    FROM requirements
-                    WHERE requirement_id = :requirement_id
-                    """
-                ),
-                {"requirement_id": requirement_id},
-            )
-            source_session_id = result.scalar_one_or_none()
-
-            if source_session_id:
                 loaded, _, _ = await load_single_requirement(
                     session=session,
                     requirement_id=requirement_id,
-                    session_id=str(source_session_id),
+                    session_id=snapshot_session_id,
+                    source_requirement_version_id=source_reference,
                 )
-                if loaded:
-                    return loaded
 
-        except ValueError:
+                loaded_requirements.extend(loaded)
+
+            return loaded_requirements
+
+    # 2. Resolve a requirement-session ID.
+    if source_reference:
+        result = await session.execute(
+            text(
+                """
+                SELECT session_id
+                FROM requirement_sessions
+                WHERE session_id = :session_id
+                """
+            ),
+            {"session_id": source_reference},
+        )
+
+        session_id = result.scalar_one_or_none()
+
+        if session_id:
+            loaded, _, _ = await load_requirements_from_session(
+                session=session,
+                session_id=str(session_id),
+            )
+
+            return loaded
+
+    # 3. Resolve a requirement ID.
+    if source_reference:
+        result = await session.execute(
+            text(
+                """
+                SELECT session_id
+                FROM requirements
+                WHERE requirement_id = :requirement_id
+                """
+            ),
+            {"requirement_id": source_reference},
+        )
+
+        session_id = result.scalar_one_or_none()
+
+        if session_id:
+            loaded, _, _ = await load_single_requirement(
+                session=session,
+                requirement_id=source_reference,
+                session_id=str(session_id),
+            )
+
+            return loaded
+
+    # 4. Try existing policy requirement mappings.
+    loaded_requirements = []
+
+    for requirement_id in dict.fromkeys(
+        fallback_requirement_ids or []
+    ):
+        requirement_id = normalize_optional_text(requirement_id)
+
+        if not requirement_id:
             continue
-        except SQLAlchemyError:
-            await session.rollback()
-            raise
 
-    return []
+        result = await session.execute(
+            text(
+                """
+                SELECT session_id
+                FROM requirements
+                WHERE requirement_id = :requirement_id
+                """
+            ),
+            {"requirement_id": requirement_id},
+        )
 
+        session_id = result.scalar_one_or_none()
 
+        if not session_id:
+            continue
 
+        loaded, _, _ = await load_single_requirement(
+            session=session,
+            requirement_id=requirement_id,
+            session_id=str(session_id),
+        )
+
+        loaded_requirements.extend(loaded)
+
+    return loaded_requirements
 
 async def modify_policy_section(
     session: AsyncSession,
@@ -973,26 +789,40 @@ async def modify_policy_section(
     requirements: list[Any] | None = None,
 ) -> PolicyResponse:
     """
-    Revise one policy section using section_id and instructions.
+    Modify one policy section using semantic comparison and validation.
 
-    - Ignores request.updated_content.
-    - Uses supplied validated requirements when available.
-    - Otherwise resolves requirements using the policy's existing
-      source reference and section requirement IDs.
-    - Preserves existing requirement mappings.
-    - Creates a new policy version without overwriting the old version.
-    - Creates new versions for linked generated skills.
+    Flow:
+        1. Load the original policy and latest version.
+        2. Identify the requested section.
+        3. Load authoritative requirements.
+        4. Validate requirement mappings.
+        5. Resolve the exact generated skill versions used originally.
+        6. Ask the revision agent to modify the section.
+        7. Validate the modification against the original section
+           and authoritative requirements.
+        8. Replace only the requested section.
+        9. Validate the complete policy.
+        10. Save a new policy version.
+
+    Generated skills are database-only.
+    No built-in filesystem skills are loaded.
     """
 
-    # ---------------------------------------------------------------
-    # 1. Validate the modification request.
-    # ---------------------------------------------------------------
-    target_section_id = normalize_optional_text(request.section_id)
-    instructions = normalize_optional_text(request.instructions)
+    # ---------------------------------------------------------
+    # 1. Validate modification request
+    # ---------------------------------------------------------
+
+    target_section_id = normalize_optional_text(
+        request.section_id
+    )
+
+    instructions = normalize_optional_text(
+        request.instructions
+    )
 
     if not target_section_id:
         raise ValueError(
-            "A valid section_id is required for policy modification."
+            "A valid section_id is required."
         )
 
     if not instructions:
@@ -1000,18 +830,19 @@ async def modify_policy_section(
             "Modification instructions cannot be empty."
         )
 
-    # Do not read request.updated_content.
+    # ---------------------------------------------------------
+    # 2. Load original policy and latest version
+    # ---------------------------------------------------------
 
-    # ---------------------------------------------------------------
-    # 2. Load the policy and its latest version.
-    # ---------------------------------------------------------------
     policy = await policy_repository.get_policy_by_id(
         session,
         policy_id,
     )
 
     if policy is None or not policy.versions:
-        raise ValueError(f"Policy {policy_id} not found.")
+        raise ValueError(
+            f"Policy {policy_id} not found."
+        )
 
     latest_version = max(
         policy.versions,
@@ -1019,7 +850,10 @@ async def modify_policy_section(
     )
 
     try:
-        raw_sections = json.loads(latest_version.content_json)
+        raw_sections = json.loads(
+            latest_version.content_json
+        )
+
     except (TypeError, json.JSONDecodeError) as exc:
         raise ValueError(
             "The stored policy content is invalid JSON."
@@ -1031,13 +865,14 @@ async def modify_policy_section(
         )
 
     current_sections = [
-        PolicySectionModel.model_validate(section)
-        for section in raw_sections
+        PolicySectionModel.model_validate(item)
+        for item in raw_sections
     ]
 
-    # ---------------------------------------------------------------
-    # 3. Find the target section.
-    # ---------------------------------------------------------------
+    # ---------------------------------------------------------
+    # 3. Find the requested section
+    # ---------------------------------------------------------
+
     matching_sections = [
         section
         for section in current_sections
@@ -1052,28 +887,32 @@ async def modify_policy_section(
 
     current_section = matching_sections[0]
 
-    # Collect requirement IDs already mapped to the policy.
-    # These are fallback identifiers, not requirement content.
+    # ---------------------------------------------------------
+    # 4. Collect requirement IDs from the original policy
+    # ---------------------------------------------------------
+
     fallback_requirement_ids = list(
         dict.fromkeys(
             str(requirement_id).strip()
             for section in current_sections
             for requirement_id in section.requirement_ids
-            if requirement_id and str(requirement_id).strip()
+            if requirement_id
+            and str(requirement_id).strip()
         )
     )
 
-    # ---------------------------------------------------------------
-    # 4. Resolve authoritative requirements.
-    # ---------------------------------------------------------------
+    # ---------------------------------------------------------
+    # 5. Load authoritative requirements
+    # ---------------------------------------------------------
+
     if requirements is not None:
-        normalized_requirements = adapt_requirements(requirements)
+
+        normalized_requirements = adapt_requirements(
+            requirements
+        )
 
     else:
-        # First attempt: resolve the stored source reference.
-        # The resolver must recognize session IDs and requirement IDs.
-        # An unrecognized snapshot/version ID must not be treated
-        # automatically as a requirement ID.
+
         normalized_requirements = (
             await _load_requirements_for_policy_source(
                 session=session,
@@ -1091,9 +930,10 @@ async def modify_policy_section(
             "requirements or resolve the existing requirement IDs."
         )
 
-    # ---------------------------------------------------------------
-    # 5. Build the authoritative requirement ID set.
-    # ---------------------------------------------------------------
+    # ---------------------------------------------------------
+    # 6. Validate authoritative requirement mappings
+    # ---------------------------------------------------------
+
     source_requirement_ids = {
         str(requirement.requirement_id).strip()
         for requirement in normalized_requirements
@@ -1121,31 +961,201 @@ async def modify_policy_section(
             + ", ".join(sorted(invalid_existing_ids))
         )
 
-    # ---------------------------------------------------------------
-    # 6. Load the policy's applied skills.
-    # ---------------------------------------------------------------
+    # ---------------------------------------------------------
+    # 7. Load exact generated skill references
+    #    from the original policy version
+    # ---------------------------------------------------------
+
     try:
-        applied_skills = json.loads(
+        stored_skill_ids = json.loads(
             latest_version.applied_skill_ids_json or "[]"
         )
+
+        stored_skill_version_ids = json.loads(
+            latest_version.applied_skill_version_ids_json or "[]"
+        )
+
     except (TypeError, json.JSONDecodeError) as exc:
         raise ValueError(
             "The policy's applied-skill metadata is invalid JSON."
         ) from exc
 
-    if not isinstance(applied_skills, list):
+    if not isinstance(stored_skill_ids, list):
         raise ValueError(
-            "The policy's applied-skill metadata must be a list."
+            "The policy's applied-skill IDs must be a list."
         )
 
-    # ---------------------------------------------------------------
-    # 7. Ask the revision agent to modify the target section.
-    # ---------------------------------------------------------------
+    if not isinstance(stored_skill_version_ids, list):
+        raise ValueError(
+            "The policy's applied skill-version IDs must be a list."
+        )
+
+    valid_skill_ids: list[str] = []
+    valid_skill_version_ids: list[str] = []
+
+    # Keep a mapping of stable skill IDs to their saved versions.
+    skill_versions_by_id: dict[str, set[str]] = {}
+
+    # Resolve only generated skills from the database.
+    for raw_skill_id in stored_skill_ids:
+
+        skill_id_value = normalize_optional_text(
+            str(raw_skill_id)
+            if raw_skill_id is not None
+            else None
+        )
+
+        if not skill_id_value:
+            continue
+
+        try:
+            skill_uuid = UUID(skill_id_value)
+
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ValueError(
+                f"Invalid generated skill ID stored in policy: "
+                f"{skill_id_value}. Built-in skill references are "
+                "not supported by the Policy Generation Agent."
+            ) from exc
+
+        stable_skill_id = str(skill_uuid)
+
+        if stable_skill_id in valid_skill_ids:
+            continue
+
+        database_skill = await get_skill_by_id(
+            session,
+            skill_uuid,
+        )
+
+        if database_skill is None:
+            raise ValueError(
+                f"Referenced generated skill '{stable_skill_id}' "
+                "no longer exists in the database."
+            )
+
+        valid_skill_ids.append(
+            str(database_skill.id)
+        )
+
+        skill_versions_by_id[
+            str(database_skill.id)
+        ] = {
+            str(version.id)
+            for version in database_skill.versions
+        }
+
+    # ---------------------------------------------------------
+    # 8. Preserve exact skill versions
+    # ---------------------------------------------------------
+
+    for raw_version_id in stored_skill_version_ids:
+
+        version_id_value = normalize_optional_text(
+            str(raw_version_id)
+            if raw_version_id is not None
+            else None
+        )
+
+        if not version_id_value:
+            continue
+
+        try:
+            version_uuid = UUID(version_id_value)
+
+        except (ValueError, TypeError, AttributeError) as exc:
+            raise ValueError(
+                f"Invalid stored skill version ID: "
+                f"{version_id_value}"
+            ) from exc
+
+        normalized_version_id = str(version_uuid)
+
+        if normalized_version_id in valid_skill_version_ids:
+            continue
+
+        # A stored version must belong to one of the policy's
+        # referenced generated skills.
+        belongs_to_policy_skill = any(
+            normalized_version_id in version_ids
+            for version_ids in skill_versions_by_id.values()
+        )
+
+        if not belongs_to_policy_skill:
+            raise ValueError(
+                f"Skill version '{normalized_version_id}' "
+                "does not belong to any generated skill referenced "
+                "by this policy."
+            )
+
+        valid_skill_version_ids.append(
+            normalized_version_id
+        )
+
+    # ---------------------------------------------------------
+    # 9. Backward compatibility for older policies
+    #    without exact skill-version references
+    # ---------------------------------------------------------
+
+    if valid_skill_ids and not valid_skill_version_ids:
+
+        logger.warning(
+            "Policy %s version %s has generated skill IDs "
+            "but no pinned skill versions. Resolving latest versions.",
+            policy.id,
+            latest_version.version,
+        )
+
+        for stable_skill_id in valid_skill_ids:
+
+            database_skill = await get_skill_by_id(
+                session,
+                UUID(stable_skill_id),
+            )
+
+            if database_skill is None or not database_skill.versions:
+                raise ValueError(
+                    f"Could not resolve saved versions for "
+                    f"generated skill '{stable_skill_id}'."
+                )
+
+            latest_skill_version = max(
+                database_skill.versions,
+                key=lambda item: item.version,
+            )
+
+            if not normalize_optional_text(
+                latest_skill_version.content
+            ):
+                raise ValueError(
+                    f"Latest version of generated skill "
+                    f"'{database_skill.name}' has no stored content."
+                )
+
+            valid_skill_version_ids.append(
+                str(latest_skill_version.id)
+            )
+
+    logger.info(
+        "Policy modification skill references: "
+        "generated_skill_ids=%s generated_skill_version_ids=%s",
+        valid_skill_ids,
+        valid_skill_version_ids,
+    )
+
+    # ---------------------------------------------------------
+    # 10. Ask revision agent to modify the section
+    # ---------------------------------------------------------
+
     revised_section = await revise_policy_section_agent(
         current_section=current_section,
         user_instructions=instructions,
         all_requirements=normalized_requirements,
-        applied_skills=applied_skills,
+        selected_skill_version_ids=[
+            UUID(version_id)
+            for version_id in valid_skill_version_ids
+        ],
+        session_factory=AsyncSessionLocal,
     )
 
     if revised_section.section_id != target_section_id:
@@ -1174,13 +1184,15 @@ async def modify_policy_section(
             "The revision agent returned placeholder content."
         )
 
-    # ---------------------------------------------------------------
-    # 8. Validate requirement traceability.
-    # ---------------------------------------------------------------
+    # ---------------------------------------------------------
+    # 11. Validate revised requirement traceability
+    # ---------------------------------------------------------
+
     revised_requirement_ids = {
         str(requirement_id).strip()
         for requirement_id in revised_section.requirement_ids
-        if requirement_id and str(requirement_id).strip()
+        if requirement_id
+        and str(requirement_id).strip()
     }
 
     unknown_ids = (
@@ -1193,7 +1205,6 @@ async def modify_policy_section(
             + ", ".join(sorted(unknown_ids))
         )
 
-    # Do not silently remove previously valid mappings.
     missing_existing_ids = (
         existing_requirement_ids - revised_requirement_ids
     )
@@ -1204,9 +1215,10 @@ async def modify_policy_section(
             + ", ".join(sorted(missing_existing_ids))
         )
 
-    # ---------------------------------------------------------------
-    # 8A. Validate the requested modification before persistence.
-    # ---------------------------------------------------------------
+    # ---------------------------------------------------------
+    # 12. Validate the requested modification semantically
+    # ---------------------------------------------------------
+
     modification_report = validate_policy_modification(
         original_section=current_section,
         revised_section=revised_section,
@@ -1215,21 +1227,31 @@ async def modify_policy_section(
     )
 
     if modification_report.overall_status.upper() != "PASS":
+
         details = "\n".join(
             f"- {finding.rule_name}: {finding.message}"
-            + (f" Details: {'; '.join(finding.details)}" if finding.details else "")
+            + (
+                f" Details: {'; '.join(finding.details)}"
+                if finding.details
+                else ""
+            )
             for finding in modification_report.findings
-            if finding.status in {"FAIL", "NEEDS_CLARIFICATION"}
+            if finding.status in {
+                "FAIL",
+                "NEEDS_CLARIFICATION",
+            }
         )
+
         raise PolicyModificationRejected(
             "Policy modification rejected before creating a new version:\n"
             + details,
             comparison=modification_report.model_dump(),
         )
 
-    # ---------------------------------------------------------------
-    # 9. Replace only the requested section.
-    # ---------------------------------------------------------------
+    # ---------------------------------------------------------
+    # 13. Replace only the requested section
+    # ---------------------------------------------------------
+
     updated_sections = [
         revised_section
         if section.section_id == target_section_id
@@ -1237,183 +1259,98 @@ async def modify_policy_section(
         for section in current_sections
     ]
 
-    # ---------------------------------------------------------------
-    # 10. Validate the complete revised policy.
-    # A wording change does not mean that the user has answered prior
-    # clarification questions, so carry them forward until source requirements
-    # are updated and the policy is revalidated.
-    inherited_clarifications = _stored_clarification_items(latest_version)
+    # ---------------------------------------------------------
+    # 14. Validate the complete policy
+    # ---------------------------------------------------------
+
+    inherited_clarifications = _stored_clarification_items(
+        latest_version
+    )
+
     validation_report = validate_policy_draft(
         sections=updated_sections,
         requirements=normalized_requirements,
         unresolved_items=inherited_clarifications,
     )
 
-    # FAIL blocks persistence. NEEDS_CLARIFICATION is still a valid draft state;
-    # the new version can be saved but cannot be approved.
     if validation_report.overall_status.upper() == "FAIL":
+
         details = "\n".join(
             f"- {finding.rule_name}: {finding.message}"
             + (
                 f" Details: {'; '.join(finding.details)}"
-                if finding.details else ""
+                if finding.details
+                else ""
             )
             for finding in validation_report.findings
             if finding.status == "FAIL"
         )
+
         raise PolicyModificationRejected(
-            "Policy modification rejected because whole-policy validation "
-            "failed. No new policy version was created:\n" + details,
+            "Policy modification rejected because whole-policy "
+            "validation failed. No new policy version was created:\n"
+            + details,
             comparison=validation_report.model_dump(),
         )
 
-    # 11. Create a new policy version and linked skill versions.
-    # ---------------------------------------------------------------
-    skills_root = Path(
-        settings.generated_skills_path
-    ).resolve()
+    # ---------------------------------------------------------
+    # 15. Determine next policy version
+    # ---------------------------------------------------------
 
-    created_skill_files: list[Path] = []
+    next_version = latest_version.version + 1
 
-    try:
-        new_policy_version = (
-            await policy_repository.create_policy_version(
-                session=session,
-                policy_id=policy.id,
-                sections=updated_sections,
-                change_summary=instructions,
-                validation_status=(
-                    validation_report.overall_status.lower()
-                ),
-                validation_report=validation_report,
+    # ---------------------------------------------------------
+    # 16. Format revised policy document
+    # ---------------------------------------------------------
 
-                # Preserve the existing metadata for backward
-                # compatibility. It is not used as the sole
-                # requirement-resolution mechanism.
-                source_requirement_version_id=(
-                    latest_version.source_requirement_version_id
-                ),
-                applied_skill_ids=applied_skills,
-            )
-        )
-
-        processed_skill_ids: set[UUID] = set()
-
-        for skill_identifier in applied_skills:
-            # Built-in skill names are not generated-skill UUIDs.
-            try:
-                skill_id = UUID(str(skill_identifier))
-            except (ValueError, TypeError, AttributeError):
-                continue
-
-            if skill_id in processed_skill_ids:
-                continue
-
-            processed_skill_ids.add(skill_id)
-
-            skill = await get_skill_by_id(
-                session,
-                skill_id,
-            )
-
-            if skill is None or not skill.versions:
-                raise ValueError(
-                    f"Linked skill '{skill_identifier}' was not found "
-                    "or has no saved versions."
-                )
-
-            previous_latest = max(
-                skill.versions,
-                key=lambda item: item.version,
-            )
-
-            expected_version = previous_latest.version + 1
-
-            new_skill_version = await create_next_skill_version(
-                session=session,
-                skill_id=skill_id,
-            )
-
-            actual_file = (
-                skills_root / new_skill_version.file_path
-            ).resolve()
-
-            # Prevent paths from escaping the generated skills directory.
-            actual_file.relative_to(skills_root)
-
-            expected_file = (
-                skills_root
-                / str(skill_id)
-                / f"v{expected_version}"
-                / "SKILL.md"
-            ).resolve()
-
-            if actual_file != expected_file:
-                raise RuntimeError(
-                    "The generated skill version path did not match "
-                    "the expected version."
-                )
-
-            created_skill_files.append(actual_file)
-
-        await session.commit()
-
-    except Exception:
-        await session.rollback()
-
-        # Remove files created by this operation if the database
-        # transaction fails.
-        for file_path in created_skill_files:
-            try:
-                resolved_path = file_path.resolve()
-                resolved_path.relative_to(skills_root)
-
-                if resolved_path.is_file():
-                    resolved_path.unlink()
-
-            except (OSError, ValueError):
-                logger.exception(
-                    "Failed to clean up generated skill file: %s",
-                    file_path,
-                )
-
-        raise
-
-    # ---------------------------------------------------------------
-    # 12. Save the new policy document.
-    # ---------------------------------------------------------------
     text_content = format_policy_document_text(
         title=policy.title,
         domain=policy.domain,
-        version=new_policy_version.version,
+        version=next_version,
         sections=updated_sections,
         description=policy.description,
         status="draft",
     )
 
-    saved_path = save_policy_document_to_file(
-        policy.id,
-        new_policy_version.version,
-        text_content,
+    # ---------------------------------------------------------
+    # 17. Persist new policy version
+    # ---------------------------------------------------------
+
+    new_policy_version = (
+        await policy_repository.create_policy_version(
+            session=session,
+            policy_id=policy.id,
+            sections=updated_sections,
+            content_text=text_content,
+            change_summary=instructions,
+            validation_status=(
+                validation_report.overall_status.lower()
+            ),
+            validation_report=validation_report,
+            source_requirement_version_id=(
+                latest_version.source_requirement_version_id
+            ),
+            applied_skill_ids=valid_skill_ids,
+            applied_skill_version_ids=valid_skill_version_ids,
+        )
     )
 
-    # ---------------------------------------------------------------
-    # 13. Return the new policy version.
-    # ---------------------------------------------------------------
+    # ---------------------------------------------------------
+    # 18. Commit and return
+    # ---------------------------------------------------------
+
+    await session.commit()
+
     return _build_policy_response(
         policy,
         new_policy_version,
-        policy_text_path=saved_path,
     )
-
-
-
 async def approve_policy_version(
     session: AsyncSession,
     policy_id: UUID,
     version: int,
 ) -> PolicyResponse:
-    """Approve a specific version of a policy without validation checks."""
+    """Approve a specific policy version and update its stored text."""
 
     updated_version = (
         await policy_repository.update_policy_version_status(
@@ -1442,7 +1379,7 @@ async def approve_policy_version(
         for item in json.loads(updated_version.content_json)
     ]
 
-    text_content = format_policy_document_text(
+    updated_version.content_text = format_policy_document_text(
         title=policy.title,
         domain=policy.domain,
         version=version,
@@ -1451,16 +1388,11 @@ async def approve_policy_version(
         status="approved",
     )
 
-    saved_path = save_policy_document_to_file(
-        policy.id,
-        version,
-        text_content,
-    )
+    await session.commit()
 
     return _build_policy_response(
         policy,
         updated_version,
-        policy_text_path=saved_path,
     )
 
 
@@ -1471,23 +1403,33 @@ async def get_policy_detail(
 ) -> PolicyResponse | None:
     """Retrieve a specific policy version or the latest version."""
 
-    policy = await policy_repository.get_policy_by_id(session, policy_id)
+    policy = await policy_repository.get_policy_by_id(
+        session,
+        policy_id,
+    )
 
     if not policy or not policy.versions:
         return None
 
     if version is not None:
-        target_v = next(
-            (v for v in policy.versions if v.version == version),
+        target_version = next(
+            (
+                item
+                for item in policy.versions
+                if item.version == version
+            ),
             None,
         )
 
-        if not target_v:
+        if target_version is None:
             return None
     else:
-        target_v = max(policy.versions, key=lambda v: v.version)
+        target_version = max(
+            policy.versions,
+            key=lambda item: item.version,
+        )
 
-    return _build_policy_response(policy, target_v)
+    return _build_policy_response(policy, target_version)
 
 
 async def list_all_policies(
@@ -1499,12 +1441,9 @@ async def list_all_policies(
 ) -> list[PolicyResponse]:
     """List policies with their latest version details.
 
-    domain filters by the policy's domain (e.g. 'hr', 'finance').
-    status filters by the *latest* version's status ('draft' or
-    'approved') and is applied after pagination, so a page may return
-    fewer than `limit` results if some policies' latest version doesn't
-    match. Narrow with domain/limit rather than relying on status
-    filtering for exact page sizes.
+    `domain` filters by the policy's domain.
+    `status` filters by the latest version's status and is applied
+    after pagination, so a page may return fewer than `limit` results.
     """
 
     policies = await policy_repository.list_policies(
@@ -1513,21 +1452,27 @@ async def list_all_policies(
         limit=limit,
         offset=offset,
     )
+
     results: list[PolicyResponse] = []
 
     for policy_item in policies:
-        if policy_item.versions:
-            latest_version = max(
-                policy_item.versions,
-                key=lambda version: version.version,
-            )
+        if not policy_item.versions:
+            continue
 
-            if status is not None and latest_version.status != status:
-                continue
+        latest_version = max(
+            policy_item.versions,
+            key=lambda item: item.version,
+        )
 
-            results.append(
-                _build_policy_response(policy_item, latest_version)
+        if status is not None and latest_version.status != status:
+            continue
+
+        results.append(
+            _build_policy_response(
+                policy_item,
+                latest_version,
             )
+        )
 
     return results
 
@@ -1538,7 +1483,10 @@ async def get_policy_versions_list(
 ) -> list[PolicyVersionSummary]:
     """Retrieve version history summaries for a policy."""
 
-    policy = await policy_repository.get_policy_by_id(session, policy_id)
+    policy = await policy_repository.get_policy_by_id(
+        session,
+        policy_id,
+    )
 
     if not policy:
         return []
@@ -1555,31 +1503,42 @@ async def get_policy_versions_list(
         )
         for version_record in sorted(
             policy.versions,
-            key=lambda version: version.version,
+            key=lambda item: item.version,
         )
     ]
 
 
-def get_policy_text_content(
-    policy_id: UUID | None = None,
+async def get_policy_text_content(
+    session: AsyncSession,
+    policy_id: UUID,
     version: int | None = None,
 ) -> str | None:
-    """Read the policy text document."""
+    """Retrieve policy text from the database."""
 
-    if policy_id and version:
-        versioned_file = (
-            settings.BACKEND_ROOT
-            / "data"
-            / "policies"
-            / f"{policy_id}_v{version}.txt"
+    policy = await policy_repository.get_policy_by_id(
+        session,
+        policy_id,
+    )
+
+    if not policy or not policy.versions:
+        return None
+
+    if version is not None:
+        target_version = next(
+            (
+                item
+                for item in policy.versions
+                if item.version == version
+            ),
+            None,
         )
 
-        if versioned_file.is_file():
-            return versioned_file.read_text(encoding="utf-8")
+        if target_version is None:
+            return None
+    else:
+        target_version = max(
+            policy.versions,
+            key=lambda item: item.version,
+        )
 
-    primary_file = settings.BACKEND_ROOT / "data" / "policy.txt"
-
-    if primary_file.is_file():
-        return primary_file.read_text(encoding="utf-8")
-
-    return None
+    return target_version.content_text

@@ -2,6 +2,11 @@
 
 Standard contents per policy type. Use as the checklist of what each policy must address. Scale depth to company size.
 
+**How to use this catalog.**
+- Free-form drafting (no source requirements): treat "Must cover" as the content to draft.
+- Requirement-driven drafting (validated source requirements supplied): treat "Must cover" as a coverage checklist only. Compare the draft against it. Any item the source requirements do not cover goes into the policy's Unresolved items as a question for the policy owner. Never invent rules to fill a catalog item.
+- Items marked (needs approval) are company decisions. They must never become mandatory rules until the company confirms them.
+
 ## Contents
 - HR and People
 - IT and Information Security
@@ -17,9 +22,9 @@ Standard contents per policy type. Use as the checklist of what each policy must
 | Policy | Must cover |
 |---|---|
 | Code of Conduct | Professional behaviour, conflicts of interest, gifts, confidentiality, social media, reporting channel, disciplinary process |
-| Leave | Types (casual, sick, earned, maternity/paternity, bereavement, comp-off), accrual, carry-forward, encashment, approval workflow, holidays, unauthorised absence |
+| Leave | Types (casual, sick, earned, maternity/paternity, bereavement, comp-off), accrual, pro-rata method for part-time/contract staff, carry-forward, encashment and forfeiture, approval workflow and escalation, emergency/unplanned absence procedure, sick-leave documentation for extended absence, public holiday eligibility and treatment, jurisdiction and tax treatment (verify with legal), unauthorised absence, named responsibilities of employee, manager and HR |
 | Attendance and Working Hours | Hours, flexible timing, overtime, late arrival, timesheets, holidays |
-| Remote / Hybrid Work | Eligibility, approval, core hours, equipment, expense reimbursement, security, performance expectations, workplace safety at home |
+| Remote / Hybrid Work | Eligibility, approval and who approves full-time remote (needs approval), core hours and availability (needs approval), equipment and IT support (needs approval), expense reimbursement (needs approval), data security and confidentiality while remote, performance expectations, workplace safety at home (needs approval), exception handling |
 | Anti-Sexual Harassment (POSH) | Definition, Internal Committee composition, complaint procedure and timelines, confidentiality, protection from retaliation, annual report and awareness training |
 | Equal Opportunity and Anti-Discrimination | Protected characteristics, reasonable accommodation, complaint route |
 | Recruitment and Onboarding | Sourcing, interview fairness, background checks, offer process, probation, induction |
@@ -34,14 +39,14 @@ Standard contents per policy type. Use as the checklist of what each policy must
 
 | Policy | Must cover |
 |---|---|
-| Information Security (umbrella) | Objectives, governance, risk management, framework alignment, roles (CISO/IT head) |
+| Information Security (umbrella) | Objectives, governance, risk management, framework alignment, roles (CISO/IT head), enforcement actions, exception management, security training cadence and compliance tracking |
 | Acceptable Use | Permitted and prohibited use of devices, internet, email, software, personal use limits, monitoring notice |
-| Access Control | Least privilege, joiner-mover-leaver process, MFA, password standards, privileged access, periodic access review |
+| Access Control | Least privilege, joiner-mover-leaver process (HR notification, prompt revocation), MFA and approved methods, MFA exceptions, password standards, privileged access, periodic access review |
 | Data Protection and Privacy | Data classification, handling, retention, deletion, consent, data subject rights, breach notification, third-party processors |
 | Data Classification and Handling | Classes (public/internal/confidential/restricted), labelling, storage, transfer, disposal |
-| BYOD / Mobile Device | Enrolment, MDM, encryption, remote wipe, lost-device reporting |
+| BYOD / Mobile Device (Device Usage) | Approved device types, personal vs corporate device boundaries, enrolment, MDM, security and encryption requirements, remote wipe, lost-device reporting. If a policy's purpose mentions device usage, it needs its own section |
 | Remote Access / VPN | Approved methods, device posture, public Wi-Fi rules |
-| Incident Response | Severity levels, reporting channel and timeline, roles, containment, communication, post-incident review |
+| Incident Response | Severity levels, reporting channel and timeline (SLAs), ownership and escalation path, logging, roles, containment, communication, post-incident review, response testing frequency |
 | Business Continuity and Disaster Recovery | RTO/RPO, critical systems, backup schedule, restore testing, contact tree |
 | Backup and Retention | Frequency, location, encryption, retention periods, restore tests |
 | Patch and Vulnerability Management | Scanning cadence, patch SLAs by severity, exceptions |
@@ -56,7 +61,8 @@ Standard contents per policy type. Use as the checklist of what each policy must
 | Social Media | Personal vs official accounts, confidentiality |
 | AI and Generative AI Use | Approved tools, prohibited inputs (personal/confidential data), human review, IP ownership, disclosure |
 | Asset Management | Inventory, assignment, return, disposal, sanitisation |
-| Logging and Monitoring | What is logged, retention, review, employee notice |
+| Logging and Monitoring | What is logged, retention periods for access logs and security events, review, employee notice |
+| Security Awareness and Training | Cadence, content, who must complete, completion tracking, consequences of non-completion |
 
 ## Finance
 

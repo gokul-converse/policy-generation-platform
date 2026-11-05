@@ -27,21 +27,32 @@ class Policy(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
+
     title: Mapped[str] = mapped_column(
         String(256),
         nullable=False,
         index=True,
     )
+
     description: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
+
     domain: Mapped[str] = mapped_column(
         String(128),
         nullable=False,
         default="general",
         index=True,
     )
+
+    # Overall policy lifecycle: draft, active, archived.
+    status: Mapped[str] = mapped_column(
+        String(32),
+        default="draft",
+        nullable=False,
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -56,7 +67,7 @@ class Policy(Base):
 
 
 class PolicyVersion(Base):
-    """Versioned draft or approved content of a policy."""
+    """Versioned policy content and validation history."""
 
     __tablename__ = "policy_versions"
 
@@ -73,51 +84,84 @@ class PolicyVersion(Base):
         primary_key=True,
         default=uuid.uuid4,
     )
+
     policy_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey("policies.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    version: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    version: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+
+    # Version lifecycle: draft, active, superseded.
     status: Mapped[str] = mapped_column(
         String(32),
         default="draft",
         nullable=False,
     )
+
+    # Structured policy representation for API and frontend.
     content_json: Mapped[str] = mapped_column(
         Text,
         nullable=False,
         comment="JSON serialization of structured policy sections",
     )
+
+    # Complete readable policy content stored directly in the database.
+    content_text: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default="",
+        comment="Complete rendered policy text",
+    )
+
+    # Validation outcome: pending, valid, needs_clarification, invalid.
     validation_status: Mapped[str] = mapped_column(
         String(32),
         default="pending",
         nullable=False,
     )
+
     validation_report_json: Mapped[str] = mapped_column(
         Text,
         default="{}",
         nullable=False,
-        comment="JSON serialization of deterministic validation findings",
+        comment="JSON serialization of validation findings",
     )
+
     source_requirement_version_id: Mapped[str | None] = mapped_column(
         String(128),
         nullable=True,
     )
+
     applied_skill_ids_json: Mapped[str] = mapped_column(
         Text,
         default="[]",
         nullable=False,
     )
+    
+    applied_skill_version_ids_json: Mapped[str] = mapped_column(
+        Text,
+        default="[]",
+        nullable=False,
+        comment="JSON list of exact generated skill version UUIDs used by this policy version",
+    )
+
     change_summary: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 
-    policy: Mapped["Policy"] = relationship(back_populates="versions")
+    policy: Mapped["Policy"] = relationship(
+        back_populates="versions",
+    )
