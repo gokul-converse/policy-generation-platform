@@ -18,6 +18,48 @@
       "prompt": "We are a new 15-person startup in India. Which policies do we need right now, and can you write the first two?",
       "expected_output": "A proposed starter policy set from the catalog (including POSH applicability note), then two fully drafted policies with consistent terminology.",
       "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Generate a leave policy from these validated requirements (IDs supplied): 15 annual / 12 sick / 12 casual days for permanent and probationary staff; pro-rata for part-time and contract staff; carry-forward up to 30 days expiring after 12 months; manager review within 2 business days with escalation to HR. Unresolved details: tax treatment of encashment, public holiday treatment, leave system details.",
+      "expected_output": "A requirement-driven leave policy that preserves 15/12/12, 30 days and 2 business days exactly, maps each requirement ID to a section, has no [TBD]/[X] placeholders, lists the three unresolved details in an Unresolved items section, lists missing items (unplanned absence, sick-leave documentation, responsibilities) as questions instead of inventing rules, and ends with a requirement coverage checklist and the disclaimer.",
+      "files": [],
+      "expectations": [
+        "Numeric values match the source exactly",
+        "Every supplied requirement ID appears in at least one section",
+        "No literal placeholders such as [TBD], [TODO] or [X days]",
+        "Unresolved items section lists all supplied unresolved details",
+        "No section consists only of a statement that something is defined elsewhere",
+        "Requirement coverage checklist present with honest statuses",
+        "Document control block lists source requirement IDs and DRAFT status"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Generate a policy from requirements covering password rules (14 characters minimum, lock after 10 failed attempts), MFA, access control, a four-tier data classification and incident reporting. The requirement's policy name is null and its purpose mentions device usage. Unresolved details: log retention, incident SLAs, training cadence, BYOD enrolment.",
+      "expected_output": "A requirement-driven IT security policy with a meaningful title (IT Security Policy, not REQUIREMENT), exact control values preserved, a Device Usage and BYOD section or an explicit unresolved item for it, all four unresolved details surfaced, incident reporting not left thin (gaps listed as questions), and a coverage checklist.",
+      "files": [],
+      "expectations": [
+        "Title is meaningful and not REQUIREMENT or a placeholder",
+        "14 characters and 10 failed attempts preserved exactly",
+        "Device usage and BYOD is addressed or listed as an unresolved item",
+        "All four unresolved details appear in Unresolved items",
+        "No invented penalties, SLAs or retention periods",
+        "Requirement coverage checklist present"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Generate a work-from-home policy from six validated requirements: eligible staff are full-time employees in remote-friendly roles; up to 2 days per week with manager approval; full-time remote needs special approval; requests go through the HR system with dates, reason and manager approval; review within 2 business days.",
+      "expected_output": "A requirement-driven WFH policy that covers all six requirements without padding it with invented rules. Core hours, equipment, expense reimbursement, home workplace safety, remote data security and who approves full-time remote are listed as unresolved questions marked as needing company approval, not written as mandatory rules.",
+      "files": [],
+      "expectations": [
+        "2 days per week and 2 business days preserved exactly",
+        "No invented core hours, equipment or reimbursement rules",
+        "Catalog gaps (core hours, equipment, expenses, safety, security, approver for full-time remote) listed as unresolved",
+        "Roles and responsibilities name what each role does or the gap is listed as unresolved",
+        "Requirement coverage checklist present"
+      ]
     }
   ]
 }

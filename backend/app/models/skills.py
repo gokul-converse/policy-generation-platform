@@ -1,8 +1,15 @@
+
 """Pydantic schemas for skill generation."""
 
 import re
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 class GeneratedSkill(BaseModel):
@@ -28,7 +35,7 @@ class GeneratedSkill(BaseModel):
     instructions: str = Field(
         min_length=1,
         max_length=30000,
-        description="Reusable instructions for generating policies.",
+        description="Reusable, actionable instructions for downstream agents.",
     )
 
     requirement_ids: list[str] = Field(
@@ -39,7 +46,8 @@ class GeneratedSkill(BaseModel):
     @field_validator("name")
     @classmethod
     def validate_name(cls, value: str) -> str:
-        """Enforce the lowercase kebab-case naming convention."""
+        """Enforce lowercase kebab-case naming."""
+
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value):
             raise ValueError(
                 "Skill name must use lowercase letters, numbers, "
@@ -52,6 +60,7 @@ class GeneratedSkill(BaseModel):
     @classmethod
     def validate_non_blank_text(cls, value: str) -> str:
         """Reject empty or whitespace-only text."""
+
         if not value.strip():
             raise ValueError("This field cannot be blank.")
 
@@ -64,13 +73,16 @@ class GeneratedSkill(BaseModel):
         values: list[str],
     ) -> list[str]:
         """Reject blank or duplicate requirement IDs."""
+
         cleaned = [value.strip() for value in values]
 
         if any(not value for value in cleaned):
             raise ValueError("Requirement IDs cannot be blank.")
 
         if len(cleaned) != len(set(cleaned)):
-            raise ValueError("Duplicate requirement IDs are not allowed.")
+            raise ValueError(
+                "Duplicate requirement IDs are not allowed."
+            )
 
         return cleaned
 
@@ -88,7 +100,11 @@ class GeneratedSkillSet(BaseModel):
     @model_validator(mode="after")
     def validate_unique_skill_names(self) -> "GeneratedSkillSet":
         """Prevent duplicate skill names within one generated set."""
-        names = [skill.name.casefold() for skill in self.skills]
+
+        names = [
+            skill.name.casefold()
+            for skill in self.skills
+        ]
 
         if len(names) != len(set(names)):
             raise ValueError(

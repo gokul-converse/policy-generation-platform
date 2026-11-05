@@ -193,23 +193,22 @@ async def get_skill_versions_endpoint(
         )
 
     return [
-        SkillVersionDetail(
-            version_id=version.id,
-            skill_id=version.skill_id,
-            version=version.version,
-            file_path=version.file_path,
-            status=version.status,
-            created_at=version.created_at,
-            source_requirement_version_id=(
-                version.source_requirement_version_id
-            ),
-            content=None,
-        )
-        for version in sorted(
-            skill.versions,
-            key=lambda item: item.version,
-            reverse=True,
-        )
+    SkillVersionDetail(
+        version_id=version.id,
+        skill_id=version.skill_id,
+        version=version.version,
+        status=version.status,
+        created_at=version.created_at,
+        source_requirement_version_id=(
+            version.source_requirement_version_id
+        ),
+        content=None,
+    )
+    for version in sorted(
+        skill.versions,
+        key=lambda item: item.version,
+        reverse=True,
+    )
     ]
 
 

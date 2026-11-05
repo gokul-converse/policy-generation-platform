@@ -56,7 +56,6 @@ class Skill(Base):
 
 
 # Prevent duplicate skill names regardless of capitalization.
-# Define the index after Skill so Skill.name is available.
 Index(
     "uq_skills_name_lower",
     func.lower(Skill.name),
@@ -65,7 +64,7 @@ Index(
 
 
 class SkillVersion(Base):
-    """Metadata for a skill version stored in a Markdown file."""
+    """Versioned skill content stored directly in the database."""
 
     __tablename__ = "skill_versions"
 
@@ -102,11 +101,13 @@ class SkillVersion(Base):
         nullable=False,
     )
 
-    file_path: Mapped[str] = mapped_column(
-        String(512),
-        nullable=False,
+    # Complete SKILL.md Markdown content stored in the database.
+    content: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
     )
 
+    # Version lifecycle: draft, active, or inactive.
     status: Mapped[str] = mapped_column(
         String(20),
         default="draft",

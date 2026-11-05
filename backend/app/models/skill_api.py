@@ -181,7 +181,6 @@ class SkillVersionDetail(BaseModel):
     version_id: UUID
     skill_id: UUID
     version: int = Field(ge=1)
-    file_path: str
     status: str
     created_at: datetime
     source_requirement_version_id: str | None = None

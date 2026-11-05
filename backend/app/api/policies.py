@@ -293,40 +293,50 @@ async def approve_policy_version_endpoint(
         ) from None
 
 
+
 @router.get(
     "/{policy_id}/text",
     response_class=PlainTextResponse,
     summary="Get policy document text",
-    description="Returns the formatted text for a policy version.",
+    description="Returns the stored text for a specific policy version.",
 )
 async def get_policy_text_endpoint(
     policy_id: UUID,
     version: int | None = Query(default=None, ge=1),
     session: AsyncSession = Depends(get_db),
 ) -> str:
-    """Return the requested policy's formatted text."""
+    """Return the requested policy version's stored text."""
 
-    policy = await policy_service.get_policy_detail(
-        session=session,
-        policy_id=policy_id,
-        version=version,
-    )
-
-    if not policy:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Policy or requested version not found.",
+    try:
+        content = await policy_service.get_policy_text_content(
+            session=session,
+            policy_id=policy_id,
+            version=version,
         )
 
-    content = policy_service.get_policy_text_content(
-        policy_id=policy_id,
-        version=version or policy.version,
-    )
+        if content is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Policy document text not found.",
+            )
 
-    if content is None:
+        return content
+
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Policy document text not found.",
-        )
+            detail=str(exc),
+        ) from exc
 
-    return content
+    except HTTPException:
+        raise
+
+    except Exception:
+        logger.exception(
+            "Failed to retrieve text for policy %s.",
+            policy_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve policy document text.",
+        ) from None

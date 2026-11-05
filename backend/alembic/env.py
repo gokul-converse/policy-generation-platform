@@ -33,7 +33,12 @@ config.set_main_option(
 
 # All SQLAlchemy models must be imported before migrations run.
 target_metadata = Base.metadata
+def include_object(object, name, type_, reflected, compare_to):
+    """Exclude SQLite FTS5 internal tables from Alembic autogeneration."""
+    if type_ == "table" and name and name.startswith("document_chunks_fts"):
+        return False
 
+    return True
 
 def run_migrations_offline() -> None:
     """Run migrations without opening a database connection."""
@@ -57,11 +62,11 @@ def do_run_migrations(connection) -> None:
         target_metadata=target_metadata,
         compare_type=True,
         render_as_batch=True,
+        include_object=include_object,  # Add this
     )
 
     with context.begin_transaction():
         context.run_migrations()
-
 
 async def run_async_migrations() -> None:
     """Create an asynchronous connection for SQLite migrations."""
