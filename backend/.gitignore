@@ -12,7 +12,6 @@ htmlcov/
 !.env.example
 
 # Local databases and runtime output
-*.db
 *.sqlite
 *.sqlite3
 logs/
@@ -34,8 +33,6 @@ venv/
 *.log
 
 
-data/sample_documents
-data/enterprise_policy.db
 
 app/test/
 tests/
@@ -56,10 +53,3 @@ __pycache__/
 # Node dependencies
 node_modules/
 
-
-
-# Local databases and backups
-backend/data/*.db
-backend/data/*.db-*
-*.db
-*.db-*
