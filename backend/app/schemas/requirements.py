@@ -1,5 +1,4 @@
-
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -23,14 +22,13 @@ class RequirementDetails(BaseModel):
     @classmethod
     def normalize_domain(cls, value: str) -> str:
         value = value.strip()
-        if not value:
-            return "general"
-        return value
+        return value or "general"
 
 
 class GatheringResult(BaseModel):
     requirements: RequirementDetails
     evidence: list[str] = Field(default_factory=list)
+    reference_data: list[dict[str, Any]] = Field(default_factory=list)
     summary: str = ""
 
 

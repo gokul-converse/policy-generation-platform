@@ -24,6 +24,7 @@ from app.agents.requirement.requirement_validation_agent import (
     validate_requirements,
 )
 from app.schemas.requirements import (
+    GatheringResult,
     RequirementDetails,
     RequirementInput,
     ValidationResult,
@@ -83,6 +84,55 @@ async def _get_clarification_history(
         [_normalize_question(question) for question in questions],
         history,
     )
+
+
+async def _save_gathered_context(
+    session_id: str,
+    gathered: GatheringResult,
+) -> None:
+    """Persist the complete gathered snapshot for reuse across clarification turns."""
+    async with AsyncSessionLocal() as db:
+        db.add(
+            ConversationMessage(
+                message_id=str(uuid4()),
+                session_id=session_id,
+                sender_type="system",
+                agent_name="requirement_gathering_agent",
+                message_type="status_update",
+                content=gathered.model_dump_json(),
+            )
+        )
+        await db.commit()
+
+
+async def _load_gathered_context(
+    session_id: str,
+) -> GatheringResult | None:
+    """Load the latest gathered snapshot without invoking the Gathering Agent."""
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ConversationMessage)
+            .where(
+                ConversationMessage.session_id == session_id,
+                ConversationMessage.sender_type == "system",
+                ConversationMessage.agent_name == "requirement_gathering_agent",
+                ConversationMessage.message_type == "status_update",
+            )
+            .order_by(ConversationMessage.created_at.desc())
+            .limit(1)
+        )
+        message = result.scalar_one_or_none()
+
+    if message is None:
+        return None
+
+    try:
+        return GatheringResult.model_validate_json(message.content)
+    except Exception:
+        logger.exception(
+            "Could not restore gathered context for session %s", session_id
+        )
+        return None
 
 
 def _build_review_draft(
@@ -307,16 +357,49 @@ async def process_requirement_message(
 
     await update_session_status(session_id, "gathering")
 
-    gathering_started = perf_counter()
-    gathered = await gather_requirements(
-        description=session.original_description,
-        conversation_history=agent_context,
-    )
-    logger.info(
-        "requirement_gathering_agent took %.2f seconds for session %s",
-        perf_counter() - gathering_started,
-        session_id,
-    )
+    gathered = None
+
+    if request.event == "start":
+        gathering_started = perf_counter()
+        gathered = await gather_requirements(
+            description=session.original_description,
+            conversation_history=agent_context,
+        )
+        await _save_gathered_context(session_id, gathered)
+        logger.info(
+            "requirement_gathering_agent took %.2f seconds for session %s",
+            perf_counter() - gathering_started,
+            session_id,
+        )
+    elif request.event == "answer":
+        gathered = await _load_gathered_context(session_id)
+
+        # Compatibility fallback for sessions created before gathered-context
+        # snapshots were introduced. New sessions should always reuse the
+        # snapshot created during their start event.
+        if gathered is None:
+            logger.warning(
+                "No gathered-context snapshot found for session %s; "
+                "running one-time compatibility gathering.",
+                session_id,
+            )
+            gathering_started = perf_counter()
+            gathered = await gather_requirements(
+                description=session.original_description,
+                conversation_history=agent_context,
+            )
+            await _save_gathered_context(session_id, gathered)
+            logger.info(
+                "compatibility requirement gathering took %.2f seconds "
+                "for session %s",
+                perf_counter() - gathering_started,
+                session_id,
+            )
+
+    if gathered is None:
+        raise RuntimeError(
+            f"Gathered context is unavailable for event {request.event!r}."
+        )
 
     requirement_id = await _upsert_requirement(
         session_id=session_id,

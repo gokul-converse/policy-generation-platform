@@ -1,4 +1,4 @@
-"""Validate gathered requirements and select the next workflow action."""
+"""Validate gathered requirements using reference and document context."""
 
 from agent_framework import Message
 from pydantic import ValidationError
@@ -12,7 +12,7 @@ async def validate_requirements(
     gathered: GatheringResult,
     conversation_history: str = "",
 ) -> ValidationResult:
-    """Ask one useful clarification question or prepare a review draft."""
+    """Ask one useful question or prepare a review draft."""
     client = get_foundry_client()
 
     response = await client.get_response(
@@ -23,7 +23,8 @@ async def validate_requirements(
                     f"""
 {VALIDATION_PROMPT}
 
-Latest gathered requirements and reference evidence:
+Latest gathered requirements, verified structured reference data,
+and retrieved document evidence:
 {gathered.model_dump_json(indent=2)}
 
 Complete conversation and structured clarification history:
@@ -44,8 +45,10 @@ For ready_for_confirmation:
 - Set question to null.
 - Return a draft matching the RequirementDetails schema.
 
-Never mark requirements as confirmed. Return valid JSON only, without
-Markdown fences or additional text.
+Use reference_data when relevant and applicable. Do not ask users to repeat
+values already available in applicable verified records. Preserve the
+distinction between reference-derived values and explicit user confirmation.
+Return valid JSON only, without Markdown fences or additional text.
 """
                 ],
             )
@@ -67,18 +70,11 @@ Markdown fences or additional text.
                 "Validation requires clarification but returned no question."
             )
         if result.draft is not None:
-            raise ValueError(
-                "Clarification response must not contain a draft."
-            )
-
+            raise ValueError("Clarification response must not contain a draft.")
     elif result.status == "ready_for_confirmation":
         if result.draft is None:
-            raise ValueError(
-                "Validation returned no draft for confirmation."
-            )
+            raise ValueError("Validation returned no draft for confirmation.")
         if result.question is not None:
-            raise ValueError(
-                "Draft response must not contain a clarification question."
-            )
+            raise ValueError("Draft response must not contain a clarification question.")
 
     return result

@@ -1,4 +1,3 @@
-
 """Gather generic requirements using the shared Foundry client."""
 
 import json
@@ -7,20 +6,22 @@ from agent_framework import Message
 from pydantic import ValidationError
 
 from app.agents.requirement.prompts.gathering_prompt import GATHERING_PROMPT
-from app.agents.requirement.tools.evidence_retrieval_tool import (
-    evidence_retrieval_tool,
-)
+from app.agents.requirement.tools.evidence_retrieval_tool import evidence_retrieval_tool
 from app.clients.foundry_client import get_foundry_client
 from app.schemas.requirements import GatheringResult
+from app.services.requirement_reference_service import (
+    retrieve_verified_reference_data,
+)
 
 
 async def gather_requirements(
     description: str,
     conversation_history: str = "",
 ) -> GatheringResult:
-    """Extract requirements from the original request and conversation history."""
+    """Extract requirements and retrieve generic reference/document context."""
     client = get_foundry_client()
 
+    # First pass: infer the domain and extract useful search terms.
     response = await client.get_response(
         messages=[
             Message(
@@ -47,6 +48,7 @@ Return exactly one JSON object with this structure:
     "unresolved_details": ["string"]
   }},
   "evidence": [],
+  "reference_data": [],
   "summary": "string"
 }}
 
@@ -54,16 +56,7 @@ Requirements:
 - Use the exact schema and field types shown above.
 - Use arrays of strings for stakeholders, rules, and unresolved_details.
 - The domain is an open-ended string; do not restrict it to a predefined list.
-- Generate a concise, natural title from the actual requirement.
-- Do not use a fixed domain-to-policy-name mapping or a closed catalogue.
-- Keep thresholds, approval conditions, dates, and detailed rules out
-  of the title unless they are essential to the recognized artifact name.
-- Keep the purpose, scope, stakeholders, rules, and unresolved details
-  separate and consistent.
-- Preserve information from earlier answers unless the user corrects it.
-- Do not treat assumptions or retrieved evidence as user-approved facts.
-- Never invent missing values, organizational rules, or approval limits.
-- Use null for an unknown name, purpose, or scope when the schema permits it.
+- Do not invent missing values or treat evidence as user confirmation.
 - Return valid JSON only, without Markdown fences or extra text.
 """
                 ],
@@ -71,43 +64,47 @@ Requirements:
         ]
     )
 
-    raw_text = response.text
-
     try:
-        gathered = GatheringResult.model_validate_json(raw_text)
+        gathered = GatheringResult.model_validate_json(response.text)
     except (ValidationError, ValueError) as exc:
         raise ValueError(
             "Requirement gathering agent returned invalid JSON or an "
-            f"incompatible schema. Details: {exc}. "
-            f"Raw response: {raw_text[:3000]}"
+            f"incompatible schema. Details: {exc}. Raw response: "
+            f"{response.text[:3000]}"
         ) from exc
 
-    requirements = gathered.requirements
-
+    req = gathered.requirements
     evidence_query = " ".join(
         part.strip()
         for part in (
             description,
-            requirements.policy_name or "",
-            requirements.purpose or "",
-            requirements.scope or "",
-            " ".join(requirements.stakeholders),
-            " ".join(requirements.rules),
-            " ".join(requirements.unresolved_details),
+            req.policy_name or "",
+            req.domain or "",
+            req.purpose or "",
+            req.scope or "",
+            " ".join(req.stakeholders),
+            " ".join(req.rules),
+            " ".join(req.unresolved_details),
         )
         if part and part.strip()
     )
 
-    evidence = await evidence_retrieval_tool(
+    # These are separate sources and remain separately identifiable.
+    reference_data = await retrieve_verified_reference_data(
         query=evidence_query,
-        domain=requirements.domain,
+        domain=req.domain,
+    )
+    document_evidence = await evidence_retrieval_tool(
+        query=evidence_query,
+        domain=req.domain,
     )
 
     return gathered.model_copy(
         update={
+            "reference_data": reference_data,
             "evidence": [
                 json.dumps(item, ensure_ascii=False)
-                for item in evidence
-            ]
+                for item in document_evidence
+            ],
         }
     )
