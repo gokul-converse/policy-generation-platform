@@ -1,7 +1,7 @@
-
-"""Pydantic schemas for skill generation."""
+"""Pydantic schemas for skill generation and semantic validation."""
 
 import re
+from typing import Literal
 
 from pydantic import (
     BaseModel,
@@ -109,6 +109,95 @@ class GeneratedSkillSet(BaseModel):
         if len(names) != len(set(names)):
             raise ValueError(
                 "Skill names must be unique within a generated set."
+            )
+
+        return self
+
+
+# ============================================================
+# Skill Semantic Validation Models
+# ============================================================
+
+
+class SkillValidationFinding(BaseModel):
+    """Represents one semantic issue identified in a generated skill."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+    requirement_id: str = Field(
+        min_length=1,
+        description="Authoritative requirement associated with the finding.",
+    )
+
+    finding_type: Literal[
+        "UNSUPPORTED",
+        "ALTERED",
+        "MISSING",
+        "OVERLAP",
+        "CONFLICT",
+        "AMBIGUOUS",
+    ] = Field(
+        description="Classification of the semantic validation finding."
+    )
+
+    description: str = Field(
+        min_length=1,
+        description="Explanation of the identified issue.",
+    )
+
+    evidence: str = Field(
+        min_length=1,
+        description=(
+            "Evidence from the original requirement or generated skill "
+            "supporting the finding."
+        ),
+    )
+
+    suggested_correction: str | None = Field(
+        default=None,
+        description=(
+            "Suggested correction without introducing unsupported "
+            "business rules."
+        ),
+    )
+
+
+class SkillValidationResult(BaseModel):
+    """Structured result returned by the Skill Validation Agent."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    overall_status: Literal[
+        "PASS",
+        "FAIL",
+        "NEEDS_CLARIFICATION",
+    ] = Field(
+        description="Overall semantic validation result."
+    )
+
+    findings: list[SkillValidationFinding] = Field(
+        default_factory=list,
+        description="Semantic validation findings.",
+    )
+
+    @model_validator(mode="after")
+    def validate_result_consistency(self) -> "SkillValidationResult":
+        """Ensure PASS cannot contain unresolved validation findings."""
+
+        if self.overall_status == "PASS" and self.findings:
+            raise ValueError(
+                "A PASS validation result cannot contain findings."
+            )
+
+        if (
+            self.overall_status in {"FAIL", "NEEDS_CLARIFICATION"}
+            and not self.findings
+        ):
+            raise ValueError(
+                f"{self.overall_status} requires at least one finding."
             )
 
         return self

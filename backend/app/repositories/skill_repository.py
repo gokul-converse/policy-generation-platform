@@ -25,7 +25,9 @@ async def save_skill_set(
     generated_skills = skill_set.skills
 
     if not generated_skills:
-        return []
+        raise ValueError(
+            "Cannot save an empty generated skill set."
+        )
 
     names = [skill.name.strip() for skill in generated_skills]
     normalized_names = [name.casefold() for name in names]
@@ -39,7 +41,6 @@ async def save_skill_set(
         )
 
     try:
-        # Check existing skill names without considering capitalization.
         result = await session.execute(
             select(Skill.name).where(
                 func.lower(Skill.name).in_(normalized_names)
@@ -66,7 +67,6 @@ async def save_skill_set(
             skill_id = uuid.uuid4()
             skill_ids.append(skill_id)
 
-            # Build complete SKILL.md content without creating a file.
             content = build_skill_markdown(generated_skill)
 
             skill = Skill(
@@ -90,7 +90,6 @@ async def save_skill_set(
 
         await session.flush()
 
-        # Reload saved skills with their versions.
         result = await session.execute(
             select(Skill)
             .options(selectinload(Skill.versions))
@@ -116,6 +115,11 @@ async def save_skill_set(
         for skill in saved_skills:
             skill.versions.sort(key=lambda item: item.version)
 
+            if not skill.versions:
+                raise RuntimeError(
+                    f"Saved skill '{skill.name}' has no version records."
+                )
+
         await session.commit()
 
         logger.info(
@@ -140,7 +144,6 @@ async def save_skill_set(
     except Exception:
         await session.rollback()
         raise
-
 
 async def get_skill_by_id(
     session: AsyncSession,

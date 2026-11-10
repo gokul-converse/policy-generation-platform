@@ -17,6 +17,11 @@ ui_generation_router = APIRouter(
 
 @ui_generation_router.post("/generate")
 async def generate_ui(request: UIGenerationRequest):
+    """Generate a UI definition and return it with a request ID.
+
+    Returns HTTP 502 for generation ``ValueError`` exceptions and HTTP 500
+    for other generation failures.
+    """
     request_id = str(uuid4())
     started_at = time.perf_counter()
 

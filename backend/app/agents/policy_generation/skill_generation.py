@@ -5,6 +5,9 @@ import re
 from typing import Any
 
 from agent_framework import Agent
+from app.agents.policy_generation.skill_validation import (
+    validate_generated_skills,
+)
 from app.clients.foundry_client import get_foundry_client
 from app.common.logger import get_logger
 from app.context.skill_provider import create_skill_generation_provider
@@ -13,6 +16,10 @@ from app.prompts.skills import SKILL_GENERATOR_INSTRUCTIONS
 
 logger = get_logger(__name__)
 
+class SkillValidationNeedsClarificationError(ValueError):
+    """Raised when authoritative requirements need clarification."""
+    
+    
 REQUIRED_HEADINGS = [
     "# ",
     "## Purpose",
@@ -382,33 +389,84 @@ def validate_generated_skill_set(
 
 
 
+
 def _build_prompt(
     requirements_json: str,
     validation_error: str | None = None,
+    previous_skill_set_json: str | None = None,
 ) -> str:
     """Build an initial generation or repair prompt."""
 
     if validation_error:
+        previous_output = (
+            previous_skill_set_json
+            if previous_skill_set_json
+            else "No previous generated skill output is available."
+        )
+
         return (
-            "Repair the generated skill set based on the following "
-            "validation failure:\n"
+            "REPAIR THE PREVIOUSLY GENERATED SKILL SET.\n\n"
+
+            "The previous output failed validation. "
+            "Review the original output and the validation findings "
+            "before producing the corrected skill set.\n\n"
+
+            "PREVIOUS GENERATED SKILL SET:\n"
+            f"{previous_output}\n\n"
+
+            "VALIDATION FINDINGS:\n"
             f"{validation_error}\n\n"
-            "Preserve valid existing content. Correct the identified "
-            "issues without inventing business rules. Ensure all "
-            "requirements are covered and source IDs remain valid.\n\n"
-            f"Validated requirements:\n{requirements_json}"
+
+            "REPAIR INSTRUCTIONS:\n"
+            "- Correct every identified validation failure.\n"
+            "- Preserve valid instructions from the previous output.\n"
+            "- Do not unnecessarily rewrite valid content.\n"
+            "- Do not introduce new business rules.\n"
+            "- Do not change the meaning of authoritative requirements.\n"
+            "- Preserve requirement IDs and original requirement wording.\n"
+            "- Preserve numerical values, dates, units, conditions, "
+            "exceptions, obligations, and scope.\n\n"
+
+            "STRICT MAPPING RULES:\n"
+            "- Generate exactly one skill for each unique requirement ID.\n"
+            "- Each skill must reference exactly one requirement ID.\n"
+            "- Do not merge skills across different requirement IDs.\n"
+            "- Do not create duplicate skills for a requirement.\n"
+            "- Do not omit any requirement ID.\n"
+            "- Do not introduce unknown requirement IDs.\n\n"
+
+            "AUTHORITATIVE VALIDATED REQUIREMENTS:\n"
+            f"{requirements_json}\n\n"
+
+            "Return the complete corrected skill set using the "
+            "required structured output format."
         )
 
     return (
-        "Generate reusable operational Agent Skills from these "
-        "validated requirements.\n\n"
-        "Follow the supplied skill-generation instructions and the "
-        "configured company-policy-generator built-in skill.\n"
-        "Analyze capability boundaries, consolidate related tasks, "
-        "prevent semantic overlap, and preserve requirement traceability.\n\n"
-        f"Validated requirements:\n{requirements_json}"
-    )
+        "Generate enterprise-ready, reusable operational Agent Skills "
+        "from the supplied validated requirements.\n\n"
 
+        "STRICT REQUIREMENT MAPPING:\n"
+        "- Generate exactly one skill per unique requirement ID.\n"
+        "- Each skill must map to exactly one requirement ID.\n"
+        "- Do not combine multiple requirement IDs into one skill.\n"
+        "- Do not create multiple skills for the same requirement ID.\n"
+        "- Preserve the original requirement ID and wording.\n\n"
+
+        "SKILL QUALITY:\n"
+        "- Define a clear purpose and scope.\n"
+        "- Provide actionable, reusable instructions.\n"
+        "- Define applicable conditions and constraints.\n"
+        "- Identify prohibited assumptions and unsupported decisions.\n"
+        "- Make instructions clear enough for an agent to execute.\n"
+        "- Avoid generic or repetitive instructions.\n\n"
+
+        "Follow the configured company-policy-generator built-in skill "
+        "and the supplied skill-generation instructions.\n\n"
+
+        "AUTHORITATIVE VALIDATED REQUIREMENTS:\n"
+        f"{requirements_json}"
+    )
 
 
 
@@ -417,7 +475,7 @@ async def generate_skills(
     client: Any = None,
     max_retries: int = 3,
 ) -> GeneratedSkillSet:
-    """Generate and validate reusable draft skills."""
+    """Generate skills and validate them structurally and semantically."""
 
     if max_retries < 1:
         raise ValueError("max_retries must be at least 1.")
@@ -452,13 +510,19 @@ async def generate_skills(
     )
 
     validation_error: str | None = None
+    previous_skill_set_json: str | None = None
 
     for attempt in range(1, max_retries + 1):
 
         prompt = _build_prompt(
             requirements_json=requirements_json,
             validation_error=validation_error,
+            previous_skill_set_json=previous_skill_set_json,
         )
+
+        # --------------------------------------------------
+        # 1. Generate skill set and run structural validation
+        # --------------------------------------------------
 
         try:
             result = await agent.run(prompt)
@@ -480,41 +544,138 @@ async def generate_skills(
                     result_text
                 )
 
-            # Source text is authoritative input data.
-            # Rebuild it instead of trusting model-generated wording.
+            # Retain the previous output for the next repair attempt.
+            previous_skill_set_json = skill_set.model_dump_json(
+                indent=2,
+            )
+
+            # Reconstruct source requirements from authoritative input.
             canonicalize_source_requirements(
                 skill_set=skill_set,
                 validated_requirements=requirements,
             )
 
+            # Deterministic validation.
             validate_generated_skill_set(
                 skill_set=skill_set,
                 validated_requirements=requirements,
                 known_requirement_ids=known_ids,
             )
 
-            logger.info(
-                "Generated %d valid skills on attempt %d.",
-                len(skill_set.skills),
-                attempt,
+        except Exception as exc:
+            validation_error = (
+                "Structural validation or generation error: "
+                f"{str(exc)[:2000]}"
             )
 
-            return skill_set
-
-        except Exception as exc:
-
-            validation_error = str(exc)[:2000]
-
             logger.warning(
-                "Skill generation attempt %d/%d failed: %s",
+                "Skill generation/structural validation failed "
+                "on attempt %d/%d: %s",
                 attempt,
                 max_retries,
                 validation_error,
             )
 
             if attempt == max_retries:
-                raise
+                raise ValueError(
+                    "Skill generation failed after structural "
+                    f"validation retries: {validation_error}"
+                ) from exc
+
+            continue
+
+        # --------------------------------------------------
+        # 2. Independent semantic validation
+        # --------------------------------------------------
+
+        # Do not catch validator infrastructure errors here and
+        # misinterpret them as semantic failures.
+        validation_result = await validate_generated_skills(
+            validated_requirements=requirements,
+            generated_skill_set=skill_set,
+            client=llm_client,
+        )
+
+        validation_status = validation_result.overall_status
+
+        # --------------------------------------------------
+        # 3. PASS: return validated skills
+        # --------------------------------------------------
+
+        if validation_status == "PASS":
+            logger.info(
+                "Skill generation and semantic validation passed "
+                "on attempt %d.",
+                attempt,
+            )
+
+            return skill_set
+
+        # --------------------------------------------------
+        # 4. NEEDS_CLARIFICATION: stop immediately
+        # --------------------------------------------------
+
+        if validation_status == "NEEDS_CLARIFICATION":
+            clarification_details = [
+                finding.model_dump(mode="json")
+                for finding in validation_result.findings
+            ]
+
+            logger.warning(
+                "Skill generation requires clarification. "
+                "Requirement IDs: %s",
+                sorted(
+                    {
+                        finding.requirement_id
+                        for finding in validation_result.findings
+                    }
+                ),
+            )
+
+            raise SkillValidationNeedsClarificationError(
+                "Skill generation stopped because the authoritative "
+                "requirements need clarification. "
+                "Please resolve these items before generating skills: "
+                f"{json.dumps(clarification_details, ensure_ascii=False)}"
+            )
+
+        # --------------------------------------------------
+        # 5. FAIL: repair and retry
+        # --------------------------------------------------
+
+        if validation_status == "FAIL":
+            validation_findings = [
+                finding.model_dump(mode="json")
+                for finding in validation_result.findings
+            ]
+
+            validation_error = json.dumps(
+                validation_findings,
+                ensure_ascii=False,
+                indent=2,
+            )
+
+            logger.warning(
+                "Semantic skill validation failed on attempt %d/%d. "
+                "Findings: %s",
+                attempt,
+                max_retries,
+                validation_error,
+            )
+
+            if attempt == max_retries:
+                raise ValueError(
+                    "Generated skills failed semantic validation "
+                    f"after {max_retries} attempts: {validation_error}"
+                )
+
+            continue
+
+        # Defensive protection if the validation result contract changes.
+        raise ValueError(
+            f"Unsupported skill validation status: {validation_status!r}"
+        )
 
     raise RuntimeError(
-        "Skill generation failed after all attempts."
+        "Skill generation failed after all validation attempts."
     )

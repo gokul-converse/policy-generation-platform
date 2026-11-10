@@ -9,6 +9,7 @@ from app.agents.policy_generation.policy_generator import (
     generate_policy_from_requirements,
     revise_policy_section_agent,
 )
+from app.agents.policy_generation.policy_validation import validate_policy_semantics
 from app.common.logger import get_logger
 from app.db.session import AsyncSessionLocal
 from app.models.policy_api import (
@@ -32,6 +33,7 @@ from app.services.requirement_adapter import (
     load_single_requirement,
 )
 from app.services.validation_service import (
+    merge_policy_validation_reports,
     validate_policy_draft,
     validate_policy_modification,
 )
@@ -353,6 +355,76 @@ async def load_skill_instructions(
         applied_skill_ids,
         applied_skill_version_ids,
     )
+    
+    
+async def load_selected_skill_instructions(
+    session: AsyncSession,
+    skill_ids: list[str],
+    skill_version_ids: list[str],
+) -> list[dict[str, Any]]:
+    """
+    Load the exact selected generated skill-version contents.
+
+    The policy validation agent receives the same skill versions
+    that were used by the policy generation agent.
+    """
+
+    if len(skill_ids) != len(skill_version_ids):
+        raise ValueError(
+            "Skill IDs and skill-version IDs do not match."
+        )
+
+    selected_instructions: list[dict[str, Any]] = []
+
+    for skill_id, version_id in zip(
+        skill_ids,
+        skill_version_ids,
+    ):
+        database_skill = await get_skill_by_id(
+            session,
+            UUID(skill_id),
+        )
+
+        if database_skill is None:
+            raise ValueError(
+                f"Generated skill '{skill_id}' was not found."
+            )
+
+        selected_version = next(
+            (
+                item
+                for item in database_skill.versions
+                if str(item.id) == str(version_id)
+            ),
+            None,
+        )
+
+        if selected_version is None:
+            raise ValueError(
+                f"Skill version '{version_id}' does not belong "
+                f"to skill '{database_skill.name}'."
+            )
+
+        content = normalize_optional_text(
+            selected_version.content
+        )
+
+        if not content:
+            raise ValueError(
+                f"Skill '{database_skill.name}' version "
+                f"{selected_version.version} has no content."
+            )
+
+        selected_instructions.append(
+            {
+                "skill_id": str(database_skill.id),
+                "skill_name": database_skill.name,
+                "skill_version_id": str(selected_version.id),
+                "content": content,
+            }
+        )
+
+    return selected_instructions
 
 def _stored_clarification_items(
     version_record: PolicyVersion,
@@ -453,6 +525,7 @@ def _build_policy_response(
         created_at=version_record.created_at,
     )
 
+
 async def generate_and_save_policy(
     session: AsyncSession,
     request: PolicyGenerationRequest,
@@ -470,14 +543,11 @@ async def generate_and_save_policy(
         raise ValueError("'requirement_id' cannot be empty.")
 
     # 2. Load confirmed requirements.
-    # Preserve the existing requirement workflow and exact source version.
     requirements, _, purpose = await load_single_requirement(
         session=session,
         requirement_id=requirement_id,
         session_id=session_id,
-        source_requirement_version_id=(
-            request.source_requirement_version_id
-        ),
+        source_requirement_version_id=request.source_requirement_version_id,
     )
 
     if not requirements:
@@ -507,9 +577,7 @@ async def generate_and_save_policy(
         )
 
     # 5. Resolve generated skills from the database.
-    skill_command = normalize_optional_text(
-        request.skill_command
-    )
+    skill_command = normalize_optional_text(request.skill_command)
 
     if skill_command:
         (
@@ -564,17 +632,59 @@ async def generate_and_save_policy(
     generated_description = normalize_optional_text(
         policy_output.description
     )
-
     final_description = generated_description or purpose
 
-    # 8. Validate generated policy against authoritative requirements.
-    validation_report = validate_policy_draft(
+    # 8. Load exact selected skill instructions for validation.
+    selected_skill_instructions = (
+        await load_selected_skill_instructions(
+            session=session,
+            skill_ids=applied_skill_ids,
+            skill_version_ids=applied_skill_version_ids,
+        )
+    )
+
+    # 9. Run deterministic validation.
+    deterministic_report = validate_policy_draft(
         sections=policy_output.sections,
         requirements=requirements,
         unresolved_items=policy_output.unresolved_items,
     )
 
-    # 9. Format policy text.
+    # 10. Run semantic validation.
+    semantic_report = await validate_policy_semantics(
+        sections=policy_output.sections,
+        requirements=requirements,
+        operation="generation",
+        skill_instructions=selected_skill_instructions,
+    )
+
+    # 11. Merge deterministic and semantic reports.
+    validation_report = merge_policy_validation_reports(
+        deterministic_report=deterministic_report,
+        semantic_report=semantic_report,
+        total_requirements=len(requirements),
+    )
+
+    logger.info(
+        "Policy validation completed: "
+        "policy=%s deterministic=%s semantic=%s overall=%s",
+        policy_title,
+        deterministic_report.overall_status,
+        semantic_report.overall_status,
+        validation_report.overall_status,
+    )
+
+    if validation_report.overall_status == "FAIL":
+        logger.warning(
+            "Generated policy has validation failures: %s",
+            [
+                finding.model_dump()
+                for finding in validation_report.findings
+                if finding.status == "FAIL"
+            ],
+        )
+
+    # 12. Format policy document.
     text_content = format_policy_document_text(
         title=policy_title,
         domain=policy_domain,
@@ -584,7 +694,7 @@ async def generate_and_save_policy(
         status="draft",
     )
 
-    # 10. Persist policy and exact generated skill references.
+    # 13. Persist policy and its first version.
     policy = await policy_repository.create_policy(
         session=session,
         title=policy_title,
@@ -602,10 +712,15 @@ async def generate_and_save_policy(
         ),
     )
 
-    # 11. Commit database transaction.
+    # 14. Commit database transaction.
     await session.commit()
 
-    # 12. Return persisted policy.
+    # 15. Return persisted policy.
+    if not policy.versions:
+        raise RuntimeError(
+            "Policy was created but its first version was not returned."
+        )
+
     first_version = max(
         policy.versions,
         key=lambda item: item.version,
@@ -1216,14 +1331,52 @@ async def modify_policy_section(
         )
 
     # ---------------------------------------------------------
-    # 12. Validate the requested modification semantically
+    # 12. Validate the requested modification
     # ---------------------------------------------------------
 
-    modification_report = validate_policy_modification(
+    # Load the exact skill instructions used by the original policy.
+    selected_skill_instructions = (
+        await load_selected_skill_instructions(
+            session=session,
+            skill_ids=valid_skill_ids,
+            skill_version_ids=valid_skill_version_ids,
+        )
+    )
+
+    # First perform deterministic modification validation.
+    deterministic_modification_report = (
+        validate_policy_modification(
+            original_section=current_section,
+            revised_section=revised_section,
+            instructions=instructions,
+            requirements=normalized_requirements,
+        )
+    )
+
+    # Build the candidate policy without modifying the stored version.
+    candidate_sections = [
+        revised_section
+        if section.section_id == target_section_id
+        else section
+        for section in current_sections
+    ]
+
+    # Validate the revised section against the complete policy.
+    semantic_modification_report = await validate_policy_semantics(
+        sections=candidate_sections,
+        requirements=normalized_requirements,
+        operation="modification",
         original_section=current_section,
         revised_section=revised_section,
-        instructions=instructions,
-        requirements=normalized_requirements,
+        modification_instruction=instructions,
+        skill_instructions=selected_skill_instructions,
+    )
+
+    # Merge deterministic and semantic validation reports.
+    modification_report = merge_policy_validation_reports(
+        deterministic_report=deterministic_modification_report,
+        semantic_report=semantic_modification_report,
+        total_requirements=len(normalized_requirements),
     )
 
     if modification_report.overall_status.upper() != "PASS":
@@ -1247,7 +1400,6 @@ async def modify_policy_section(
             + details,
             comparison=modification_report.model_dump(),
         )
-
     # ---------------------------------------------------------
     # 13. Replace only the requested section
     # ---------------------------------------------------------
@@ -1260,17 +1412,33 @@ async def modify_policy_section(
     ]
 
     # ---------------------------------------------------------
-    # 14. Validate the complete policy
+    # 14. Validate the complete revised policy
     # ---------------------------------------------------------
 
     inherited_clarifications = _stored_clarification_items(
         latest_version
     )
 
-    validation_report = validate_policy_draft(
+    # Deterministic validation of the complete policy.
+    deterministic_report = validate_policy_draft(
         sections=updated_sections,
         requirements=normalized_requirements,
         unresolved_items=inherited_clarifications,
+    )
+
+    # Semantic validation of the complete policy.
+    semantic_report = await validate_policy_semantics(
+        sections=updated_sections,
+        requirements=normalized_requirements,
+        operation="generation",
+        skill_instructions=selected_skill_instructions,
+    )
+
+    # Merge both reports.
+    validation_report = merge_policy_validation_reports(
+        deterministic_report=deterministic_report,
+        semantic_report=semantic_report,
+        total_requirements=len(normalized_requirements),
     )
 
     if validation_report.overall_status.upper() == "FAIL":
@@ -1292,7 +1460,6 @@ async def modify_policy_section(
             + details,
             comparison=validation_report.model_dump(),
         )
-
     # ---------------------------------------------------------
     # 15. Determine next policy version
     # ---------------------------------------------------------
