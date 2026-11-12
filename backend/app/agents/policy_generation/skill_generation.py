@@ -61,7 +61,8 @@ PLACEHOLDERS = (
 SKILL_NAME_PATTERN = re.compile(
     r"[a-z0-9]+(?:-[a-z0-9]+)*"
 )
-
+SKILL_CHARACTER_LIMIT = 64
+MAX_GENERATION_RETRIES = 3
 
 # ============================================================
 # Exceptions
@@ -400,9 +401,9 @@ def _validate_skill_content(skill: Any) -> None:
             f"Skill name {skill.name!r} must use lowercase kebab-case."
         )
 
-    if len(skill.name) > 64:
+    if len(skill.name) > SKILL_CHARACTER_LIMIT:
         raise ValueError(
-            f"Skill name {skill.name!r} exceeds 64 characters."
+            f"Skill name {skill.name!r} exceeds {SKILL_CHARACTER_LIMIT} characters."
         )
 
     if not skill.description or not skill.description.strip():
@@ -699,7 +700,7 @@ def _create_skill_generator_agent(
 async def generate_skills(
     validated_requirements: dict[str, Any] | list[Any],
     client: Any = None,
-    max_retries: int = 3,
+    max_retries: int = MAX_GENERATION_RETRIES,
 ) -> GeneratedSkillSet:
     """
     Generate and validate reusable Agent Skills.
