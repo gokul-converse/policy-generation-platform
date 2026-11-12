@@ -1,10 +1,13 @@
 
-"""Coordinate generic requirement gathering, validation, and confirmation."""
+"""Coordinate requirement extraction, clarification, draft revision and confirmation."""
+
+from __future__ import annotations
 
 import json
-import re
 import logging
+import re
 from time import perf_counter
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import func, select
@@ -17,12 +20,8 @@ from app.models.requirement_db import (
     RequirementSession,
     RequirementVersion,
 )
-from app.agents.requirement.requirement_gathering_agent import (
-    gather_requirements,
-)
-from app.agents.requirement.requirement_validation_agent import (
-    validate_requirements,
-)
+from app.agents.requirement.requirement_gathering_agent import gather_requirements
+from app.agents.requirement.requirement_validation_agent import validate_requirements
 from app.schemas.requirements import (
     GatheringResult,
     RequirementDetails,
@@ -37,21 +36,130 @@ from app.services.requirement_session_service import (
 )
 
 
+# Mandatory clarification limits
 MIN_CLARIFICATION_QUESTIONS = 3
 MAX_CLARIFICATION_QUESTIONS = 5
 
 logger = logging.getLogger(__name__)
 
 
-def _normalize_question(question: str) -> str:
-    """Normalize question text for generic duplicate detection."""
-    return re.sub(r"\W+", " ", question.casefold()).strip()
+_STOP_WORDS = {
+    "a", "an", "and", "any", "are", "as", "at", "be", "been", "being",
+    "but", "by", "can", "could", "do", "does", "for", "from", "how", "i",
+    "if", "in", "into", "is", "it", "its", "me", "my", "of", "on", "or",
+    "our", "please", "should", "that", "the", "their", "them", "there",
+    "these", "this", "those", "to", "us", "we", "what", "when", "where",
+    "which", "who", "why", "will", "with", "would", "you", "your",
+    "want", "need", "clarify", "provide", "details",
+}
 
 
-async def _get_clarification_history(
-    session_id: str,
-) -> tuple[int, list[str], list[dict]]:
-    """Return previous clarification questions and their answers."""
+# ---------------------------------------------------------------------
+# Text helpers
+# ---------------------------------------------------------------------
+
+def _normalise_text(value: str) -> str:
+    return " ".join(
+        re.sub(r"\W+", " ", (value or "").casefold()).split()
+    )
+
+
+def _topic_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", (value or "").casefold())
+        if len(token) > 2 and token not in _STOP_WORDS
+    }
+
+
+def _is_duplicate_topic(
+    candidate: str,
+    history: list[dict[str, Any]],
+) -> bool:
+    """Conservatively detect repeated clarification topics."""
+
+    candidate_tokens = _topic_tokens(candidate)
+
+    if not candidate_tokens:
+        return False
+
+    for item in history:
+        previous = item.get("question") or ""
+
+        if _normalise_text(candidate) == _normalise_text(previous):
+            return True
+
+        previous_tokens = _topic_tokens(previous)
+        overlap = candidate_tokens & previous_tokens
+
+        if len(overlap) >= 2:
+            similarity = len(overlap) / max(
+                1,
+                min(len(candidate_tokens), len(previous_tokens)),
+            )
+
+            if similarity >= 0.65:
+                return True
+
+    return False
+
+
+def _has_placeholder_rules(rules: list[str]) -> bool:
+    """
+    Detect generic policy-writing statements mistakenly returned
+    as completed business decisions.
+    """
+
+    placeholder_phrases = (
+        "shall define",
+        "should define",
+        "must define",
+        "shall specify",
+        "should specify",
+        "must specify",
+        "shall cover",
+        "should cover",
+        "must cover",
+        "needs to define",
+        "needs to specify",
+    )
+
+    return any(
+        any(
+            phrase in rule.casefold()
+            for phrase in placeholder_phrases
+        )
+        for rule in rules
+    )
+
+
+def _merge_missing_details(
+    draft: RequirementDetails,
+    missing_details: list[str],
+) -> RequirementDetails:
+    """Preserve unresolved details returned by validation."""
+
+    values = list(draft.unresolved_details)
+    seen = {_normalise_text(item) for item in values}
+
+    for item in missing_details:
+        value = item.strip()
+        key = _normalise_text(value)
+
+        if value and key not in seen:
+            values.append(value)
+            seen.add(key)
+
+    return draft.model_copy(
+        update={"unresolved_details": values}
+    )
+
+
+# ---------------------------------------------------------------------
+# Clarification history
+# ---------------------------------------------------------------------
+
+async def _get_clarification_history(session_id: str):
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(ClarificationItem)
@@ -61,36 +169,107 @@ async def _get_clarification_history(
                 ClarificationItem.clarification_id.asc(),
             )
         )
-        items = result.scalars().all()
 
-        history = [
-            {
-                "question": item.question,
-                "answer": item.answer,
-                "status": item.status,
-                "requirement_id": item.requirement_id,
-            }
-            for item in items
-        ]
+        rows = result.scalars().all()
 
-    questions = [
-        item["question"]
-        for item in history
-        if item["question"] and item["question"].strip()
+    history = [
+        {
+            "question": row.question,
+            "answer": row.answer,
+            "status": row.status,
+            "requirement_id": row.requirement_id,
+        }
+        for row in rows
     ]
 
     return (
-        len(questions),
-        [_normalize_question(question) for question in questions],
+        len(history),
+        {
+            _normalise_text(item["question"])
+            for item in history
+            if item.get("question")
+        },
         history,
     )
 
+
+async def _save_clarification(
+    session_id: str,
+    requirement_id: str,
+    question: str,
+) -> None:
+
+    normalised = _normalise_text(question)
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ClarificationItem)
+            .where(ClarificationItem.session_id == session_id)
+        )
+
+        previous = result.scalars().all()
+
+        if any(
+            _normalise_text(item.question) == normalised
+            for item in previous
+        ):
+            raise ValueError(
+                "Duplicate clarification question prevented."
+            )
+
+        db.add(
+            ClarificationItem(
+                clarification_id=str(uuid4()),
+                session_id=session_id,
+                requirement_id=requirement_id,
+                question=question,
+                status="open",
+            )
+        )
+
+        await db.commit()
+
+
+async def _answer_open_clarification(
+    session_id: str,
+    answer: str,
+) -> bool:
+    """Save the answer against the latest open clarification."""
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ClarificationItem)
+            .where(
+                ClarificationItem.session_id == session_id,
+                ClarificationItem.status == "open",
+            )
+            .order_by(ClarificationItem.created_at.desc())
+            .limit(1)
+        )
+
+        item = result.scalar_one_or_none()
+
+        if item is None:
+            return False
+
+        item.answer = answer
+        item.status = "answered"
+        item.answered_at = func.current_timestamp()
+
+        await db.commit()
+
+        return True
+
+
+# ---------------------------------------------------------------------
+# Gathering context persistence
+# ---------------------------------------------------------------------
 
 async def _save_gathered_context(
     session_id: str,
     gathered: GatheringResult,
 ) -> None:
-    """Persist the complete gathered snapshot for reuse across clarification turns."""
+
     async with AsyncSessionLocal() as db:
         db.add(
             ConversationMessage(
@@ -102,89 +281,140 @@ async def _save_gathered_context(
                 content=gathered.model_dump_json(),
             )
         )
+
         await db.commit()
 
 
 async def _load_gathered_context(
     session_id: str,
 ) -> GatheringResult | None:
-    """Load the latest gathered snapshot without invoking the Gathering Agent."""
+
     async with AsyncSessionLocal() as db:
         result = await db.execute(
             select(ConversationMessage)
             .where(
                 ConversationMessage.session_id == session_id,
                 ConversationMessage.sender_type == "system",
-                ConversationMessage.agent_name == "requirement_gathering_agent",
+                ConversationMessage.agent_name
+                == "requirement_gathering_agent",
                 ConversationMessage.message_type == "status_update",
             )
             .order_by(ConversationMessage.created_at.desc())
             .limit(1)
         )
-        message = result.scalar_one_or_none()
 
-    if message is None:
+        row = result.scalar_one_or_none()
+
+    if row is None:
         return None
 
     try:
-        return GatheringResult.model_validate_json(message.content)
+        return GatheringResult.model_validate_json(row.content)
+
     except Exception:
         logger.exception(
-            "Could not restore gathered context for session %s", session_id
+            "Invalid gathered snapshot for session %s",
+            session_id,
         )
         return None
 
 
-def _build_review_draft(
-    requirements: RequirementDetails,
-    missing_details: list[str],
-) -> RequirementDetails:
-    """Build a draft without hiding unresolved details."""
-    draft = requirements.model_copy(deep=True)
-    existing = list(draft.unresolved_details)
-    seen = {item.casefold() for item in existing}
+# ---------------------------------------------------------------------
+# Draft persistence
+# ---------------------------------------------------------------------
 
-    for detail in missing_details:
-        detail = detail.strip()
-        if detail and detail.casefold() not in seen:
-            existing.append(detail)
-            seen.add(detail.casefold())
+async def _load_latest_draft(
+    session_id: str,
+) -> dict[str, Any] | None:
 
-    draft.unresolved_details = existing
-    return draft
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(ConversationMessage)
+            .where(
+                ConversationMessage.session_id == session_id,
+                ConversationMessage.sender_type == "agent",
+                ConversationMessage.agent_name
+                == "requirement_validation_agent",
+                ConversationMessage.message_type == "status_update",
+            )
+            .order_by(ConversationMessage.created_at.desc())
+            .limit(1)
+        )
+
+        row = result.scalar_one_or_none()
+
+    if row is None:
+        return None
+
+    try:
+        payload = json.loads(row.content)
+        draft = payload.get("draft")
+
+        if (
+            payload.get("status") == "ready_for_confirmation"
+            and isinstance(draft, dict)
+        ):
+            return draft
+
+    except (TypeError, ValueError):
+        logger.exception(
+            "Could not load latest draft for session %s",
+            session_id,
+        )
+
+    return None
 
 
-def _get_requirement_metadata(
-    details: RequirementDetails | dict,
+async def _save_validation(
+    session_id: str,
+    result: ValidationResult,
+) -> None:
+
+    await save_message(
+        session_id,
+        "agent",
+        result.model_dump_json(),
+        message_type=(
+            "clarification_question"
+            if result.status == "needs_clarification"
+            else "status_update"
+        ),
+        agent_name="requirement_validation_agent",
+    )
+
+
+# ---------------------------------------------------------------------
+# Requirement persistence
+# ---------------------------------------------------------------------
+
+def _metadata(
+    details: RequirementDetails | dict[str, Any],
 ) -> tuple[str, str]:
-    """Return a meaningful topic and a readable, non-JSON description."""
+
     data = (
         details.model_dump()
         if isinstance(details, RequirementDetails)
         else details
     )
 
-    policy_name = data.get("policy_name")
+    name = data.get("policy_name")
     purpose = data.get("purpose")
     scope = data.get("scope")
 
-    policy_name = policy_name.strip() if isinstance(policy_name, str) else ""
+    name = name.strip() if isinstance(name, str) else ""
     purpose = purpose.strip() if isinstance(purpose, str) else ""
     scope = scope.strip() if isinstance(scope, str) else ""
 
-    # Prefer the explicit policy name; otherwise derive a readable topic
-    # from the purpose instead of saving the generic word "Requirement".
-    if policy_name:
-        topic = policy_name[:150]
-    elif purpose:
-        topic = purpose.split(".")[0].strip()[:150] or "Untitled Requirement"
-    else:
-        topic = "Untitled Requirement"
+    topic = (
+        name
+        or purpose.split(".")[0].strip()
+        or "Untitled Requirement"
+    )[:150]
 
-    # Keep this field human-readable. The complete structured snapshot belongs
-    # in RequirementVersion.requirements_json.
-    description = purpose or scope or f"Requirements for {topic}."
-    return topic, description
+    return (
+        topic,
+        purpose or scope or f"Requirements for {topic}.",
+    )
 
 
 async def _upsert_requirement(
@@ -192,14 +422,6 @@ async def _upsert_requirement(
     details: RequirementDetails,
     status: str,
 ) -> str:
-    """Create or update the session's single requirement record."""
-    allowed_statuses = {
-        "extracted",
-        "needs_clarification",
-        "validated",
-    }
-    if status not in allowed_statuses:
-        raise ValueError(f"Unsupported pre-confirmation status: {status}")
 
     async with AsyncSessionLocal() as db:
         result = await db.execute(
@@ -208,203 +430,366 @@ async def _upsert_requirement(
             .order_by(Requirement.requirement_id.asc())
             .limit(1)
         )
-        requirement = result.scalar_one_or_none()
 
-        topic, description = _get_requirement_metadata(details)
+        row = result.scalar_one_or_none()
+        topic, description = _metadata(details)
 
-        if requirement is None:
-            requirement = Requirement(
+        if row is None:
+            row = Requirement(
                 requirement_id=str(uuid4()),
                 session_id=session_id,
                 topic=topic,
                 description=description,
                 status=status,
             )
-            db.add(requirement)
+
+            db.add(row)
+
         else:
-            requirement.topic = topic
-            requirement.description = description
-            requirement.status = status
+            row.topic = topic
+            row.description = description
+            row.status = status
 
         await db.commit()
-        await db.refresh(requirement)
-        return requirement.requirement_id
+        await db.refresh(row)
+
+        return row.requirement_id
 
 
-async def _save_clarification(
-    session_id: str,
-    requirement_id: str,
-    question: str,
-) -> None:
-    """Save a new question linked to the existing requirement."""
-    normalized = _normalize_question(question)
+# ---------------------------------------------------------------------
+# Validation agent invocation
+# ---------------------------------------------------------------------
 
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(ClarificationItem).where(
-                ClarificationItem.session_id == session_id
-            )
+async def _run_validation(
+    *,
+    gathered: GatheringResult,
+    conversation_history: str,
+    questions_asked: int,
+    current_draft: dict[str, Any] | None = None,
+    draft_revision: bool = False,
+    force_clarification: bool = False,
+    force_draft: bool = False,
+    rejected_questions: list[str] | None = None,
+) -> ValidationResult:
+    """Centralize validation calls and clarification limits."""
+
+    return await validate_requirements(
+        gathered=gathered,
+        conversation_history=conversation_history,
+        questions_asked=questions_asked,
+        minimum_questions=MIN_CLARIFICATION_QUESTIONS,
+        maximum_questions=MAX_CLARIFICATION_QUESTIONS,
+        current_draft=current_draft,
+        draft_revision=draft_revision,
+        force_clarification=force_clarification,
+        force_draft=force_draft,
+        rejected_questions=rejected_questions or [],
+    )
+
+
+# ---------------------------------------------------------------------
+# Mandatory clarification enforcement
+# ---------------------------------------------------------------------
+
+async def _enforce_minimum_questions(
+    *,
+    validation: ValidationResult,
+    gathered: GatheringResult,
+    agent_context: str,
+    question_count: int,
+) -> ValidationResult:
+    """
+    Do not permit a review draft before three clarification questions.
+
+    If the model returns a draft too early, request clarification.
+    If it still cannot produce a question, fail safely instead of
+    silently bypassing the configured minimum.
+    """
+
+    if question_count >= MIN_CLARIFICATION_QUESTIONS:
+        return validation
+
+    if validation.status == "needs_clarification":
+        return validation
+
+    if validation.status != "ready_for_confirmation":
+        return validation
+
+    logger.warning(
+        "Draft returned before mandatory minimum. "
+        "Questions asked=%s, minimum=%s",
+        question_count,
+        MIN_CLARIFICATION_QUESTIONS,
+    )
+
+    validation = await _run_validation(
+        gathered=gathered,
+        conversation_history=agent_context,
+        questions_asked=question_count,
+        force_clarification=True,
+    )
+
+    if validation.status != "needs_clarification":
+        raise RuntimeError(
+            "Minimum clarification requirement not satisfied. "
+            f"At least {MIN_CLARIFICATION_QUESTIONS} clarification "
+            "questions must be asked before producing a draft. "
+            "The Validation Agent did not return another valid question."
         )
-        previous_items = result.scalars().all()
 
-        if any(
-            _normalize_question(item.question) == normalized
-            for item in previous_items
-        ):
-            raise ValueError("Duplicate clarification question prevented.")
+    return validation
 
-        db.add(
-            ClarificationItem(
-                clarification_id=str(uuid4()),
-                session_id=session_id,
-                requirement_id=requirement_id,
-                question=question,
-                status="open",
-            )
+
+async def _enforce_maximum_questions(
+    *,
+    validation: ValidationResult,
+    gathered: GatheringResult,
+    agent_context: str,
+    question_count: int,
+) -> ValidationResult:
+    """
+    Never allow more than five clarification questions.
+    Force a review draft once the maximum has been reached.
+    """
+
+    if question_count < MAX_CLARIFICATION_QUESTIONS:
+        return validation
+
+    if validation.status == "needs_clarification":
+
+        logger.info(
+            "Maximum clarification count reached. "
+            "Forcing review draft. Questions asked=%s",
+            question_count,
         )
-        await db.commit()
 
+        validation = await _run_validation(
+            gathered=gathered,
+            conversation_history=agent_context,
+            questions_asked=question_count,
+            force_draft=True,
+        )
+
+    if (
+        validation.status != "ready_for_confirmation"
+        or validation.draft is None
+    ):
+        raise RuntimeError(
+            "Maximum clarification count reached, but the "
+            "Validation Agent could not produce a review draft."
+        )
+
+    return validation
+
+
+# ---------------------------------------------------------------------
+# Main requirement workflow
+# ---------------------------------------------------------------------
 
 async def process_requirement_message(
     request: RequirementInput,
 ) -> dict:
-    """Process a start, answer, confirm, or cancel event."""
+
     message = request.message.strip()
 
     if not message:
         raise ValueError("Message cannot be empty.")
 
+    # Create or retrieve the session.
     if request.event == "start":
+
         if request.session_id:
             raise ValueError(
                 "A new start event must not contain a session_id."
             )
+
         session = await create_or_get_session(message)
+
     else:
+
         if not request.session_id:
-            raise ValueError("session_id is required for this event.")
+            raise ValueError(
+                "session_id is required for this event."
+            )
+
         session = await create_or_get_session(
-            description=message,
+            message,
             session_id=request.session_id,
         )
 
     session_id = session.session_id
+    initial_status = session.status
+
+    # -------------------------------------------------------------
+    # Cancel event
+    # -------------------------------------------------------------
 
     if request.event == "cancel":
+
         await save_message(
             session_id,
             "user",
             message,
-            message_type="message",
         )
-        await update_session_status(session_id, "cancelled")
+
+        await update_session_status(
+            session_id,
+            "cancelled",
+        )
+
         return {
             "event": "conversation_cancelled",
             "session_id": session_id,
             "message": "Requirement gathering was cancelled.",
         }
 
+    # -------------------------------------------------------------
+    # Confirm event
+    # -------------------------------------------------------------
+
     if request.event == "confirm":
-        return await _confirm_requirement(session_id, message)
+        return await _confirm_requirement(
+            session_id,
+            message,
+        )
+
+    # -------------------------------------------------------------
+    # Determine workflow mode
+    # -------------------------------------------------------------
+
+    draft_revision = (
+        request.event == "answer"
+        and initial_status == "ready_for_confirmation"
+    )
+
+    if (
+        request.event == "answer"
+        and initial_status not in {
+            "awaiting_clarification",
+            "ready_for_confirmation",
+            "gathering",
+            "validating",
+        }
+    ):
+        raise ValueError(
+            f"Cannot answer while session is {initial_status}."
+        )
+
+    # -------------------------------------------------------------
+    # Save user message before agent execution
+    # -------------------------------------------------------------
 
     await save_message(
         session_id,
         "user",
         message,
         message_type=(
-            "clarification_answer"
+            "draft_revision"
+            if draft_revision
+            else "clarification_answer"
             if request.event == "answer"
             else "message"
         ),
     )
 
-    if request.event == "answer":
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(ClarificationItem)
-                .where(
-                    ClarificationItem.session_id == session_id,
-                    ClarificationItem.status == "open",
-                )
-                .order_by(ClarificationItem.created_at.desc())
-                .limit(1)
+    if request.event == "answer" and not draft_revision:
+
+        answered = await _answer_open_clarification(
+            session_id,
+            message,
+        )
+
+        if not answered:
+            logger.warning(
+                "No open clarification found for answer. "
+                "session_id=%s",
+                session_id,
             )
-            clarification = result.scalar_one_or_none()
 
-            if clarification is not None:
-                clarification.answer = message
-                clarification.status = "answered"
-                clarification.answered_at = func.current_timestamp()
-                await db.commit()
+    # -------------------------------------------------------------
+    # Load conversation and clarification history
+    # -------------------------------------------------------------
 
-    question_count, normalized_questions, clarification_history = (
+    question_count, _, clarification_history = (
         await _get_clarification_history(session_id)
     )
 
     conversation = await get_conversation_history(session_id)
 
-    # Explicitly provide structured history, not just raw chat messages.
+    current_draft = (
+        await _load_latest_draft(session_id)
+        if draft_revision
+        else None
+    )
+
+    if draft_revision and current_draft is None:
+        raise ValueError(
+            "The session is ready for confirmation, but its latest "
+            "draft could not be loaded."
+        )
+
     agent_context = (
         f"{conversation}\n\n"
         "STRUCTURED CLARIFICATION HISTORY:\n"
-        f"{json.dumps(clarification_history, ensure_ascii=False, indent=2)}\n\n"
-        f"Questions already asked: {question_count}\n"
-        f"Maximum allowed questions: {MAX_CLARIFICATION_QUESTIONS}\n"
-        "Use the complete history. Do not repeat previously asked topics. "
-        "If a previous topic remains unresolved, record it in the draft "
-        "instead of asking about that topic again."
+        f"{json.dumps(clarification_history, ensure_ascii=False, indent=2)}\n"
+        f"Questions already asked: {question_count}. "
+        f"Minimum target: {MIN_CLARIFICATION_QUESTIONS}. "
+        f"Maximum: {MAX_CLARIFICATION_QUESTIONS}.\n"
+        "Preserve explicit undecided items as unresolved. "
+        "Do not ask about answered or explicitly undecided topics."
     )
 
-    await update_session_status(session_id, "gathering")
-
-    gathered = None
+    # -------------------------------------------------------------
+    # Gathering Agent
+    # Runs once for a new session.
+    # Later turns reuse the persisted gathering snapshot.
+    # -------------------------------------------------------------
 
     if request.event == "start":
-        gathering_started = perf_counter()
+
+        started = perf_counter()
+
         gathered = await gather_requirements(
             description=session.original_description,
             conversation_history=agent_context,
         )
-        await _save_gathered_context(session_id, gathered)
-        logger.info(
-            "requirement_gathering_agent took %.2f seconds for session %s",
-            perf_counter() - gathering_started,
+
+        await _save_gathered_context(
             session_id,
+            gathered,
         )
-    elif request.event == "answer":
+
+        logger.info(
+            "Gathering Agent completed in %.2fs",
+            perf_counter() - started,
+        )
+
+    else:
+
         gathered = await _load_gathered_context(session_id)
 
-        # Compatibility fallback for sessions created before gathered-context
-        # snapshots were introduced. New sessions should always reuse the
-        # snapshot created during their start event.
         if gathered is None:
-            logger.warning(
-                "No gathered-context snapshot found for session %s; "
-                "running one-time compatibility gathering.",
-                session_id,
-            )
-            gathering_started = perf_counter()
+
+            # Backward compatibility for older sessions without
+            # a persisted gathering snapshot.
             gathered = await gather_requirements(
                 description=session.original_description,
                 conversation_history=agent_context,
             )
-            await _save_gathered_context(session_id, gathered)
-            logger.info(
-                "compatibility requirement gathering took %.2f seconds "
-                "for session %s",
-                perf_counter() - gathering_started,
+
+            await _save_gathered_context(
                 session_id,
+                gathered,
             )
 
-    if gathered is None:
-        raise RuntimeError(
-            f"Gathered context is unavailable for event {request.event!r}."
-        )
+    # -------------------------------------------------------------
+    # Create/update requirement record
+    # -------------------------------------------------------------
 
     requirement_id = await _upsert_requirement(
-        session_id=session_id,
-        details=gathered.requirements,
-        status="needs_clarification",
+        session_id,
+        gathered.requirements,
+        "needs_clarification",
     )
 
     await update_session_status(
@@ -413,98 +798,254 @@ async def process_requirement_message(
         domain=gathered.requirements.domain,
     )
 
-    validation_started = perf_counter()
-    validation = await validate_requirements(
+    # -------------------------------------------------------------
+    # Validation Agent
+    # -------------------------------------------------------------
+
+    validation = await _run_validation(
         gathered=gathered,
         conversation_history=agent_context,
-    )
-    logger.info(
-        "requirement_validation_agent took %.2f seconds for session %s",
-        perf_counter() - validation_started,
-        session_id,
+        questions_asked=question_count,
+        current_draft=current_draft,
+        draft_revision=draft_revision,
+        force_clarification=(
+            not draft_revision
+            and question_count < MIN_CLARIFICATION_QUESTIONS
+        ),
+        force_draft=(
+            draft_revision
+            or question_count >= MAX_CLARIFICATION_QUESTIONS
+        ),
     )
 
-    question_count, normalized_questions, clarification_history = (
-        await _get_clarification_history(session_id)
-    )
+    # -------------------------------------------------------------
+    # Draft revision handling
+    # -------------------------------------------------------------
 
-    proposed_question = (validation.question or "").strip()
-    duplicate_question = (
-        bool(proposed_question)
-        and _normalize_question(proposed_question) in normalized_questions
-    )
-    limit_reached = question_count >= MAX_CLARIFICATION_QUESTIONS
-
-    # The backend enforces the hard cap even if the model ignores the prompt.
-    # Exact duplicate text also falls back to a review draft.
-    if validation.status == "needs_clarification" and (
-        duplicate_question or limit_reached
+    if draft_revision and (
+        validation.status != "ready_for_confirmation"
+        or validation.draft is None
     ):
-        unresolved = list(validation.missing_details)
 
-        if duplicate_question:
-            unresolved.append(
-                "A previously asked question was proposed again. "
-                "Review the remaining uncertainty in the draft."
-            )
-
-        if limit_reached:
-            unresolved.append(
-                "The clarification limit was reached; remaining details "
-                "are listed for review."
-            )
-
-        validation = ValidationResult(
-            status="ready_for_confirmation",
-            missing_details=unresolved,
-            question=None,
-            draft=_build_review_draft(
-                gathered.requirements,
-                unresolved,
-            ),
-            explanation=(
-                "The maximum clarification count was reached."
-                if limit_reached
-                else
-                "A duplicate question was prevented. "
-                "The draft contains unresolved details for review."
-            ),
+        validation = await _run_validation(
+            gathered=gathered,
+            conversation_history=agent_context,
+            questions_asked=question_count,
+            current_draft=current_draft,
+            draft_revision=True,
+            force_draft=True,
         )
 
-    await save_message(
-        session_id,
-        "agent",
-        validation.model_dump_json(),
-        message_type=(
-            "clarification_question"
-            if validation.status == "needs_clarification"
-            else "status_update"
-        ),
-        agent_name="requirement_validation_agent",
+    if draft_revision:
+
+        if (
+            validation.status != "ready_for_confirmation"
+            or validation.draft is None
+        ):
+            raise RuntimeError(
+                "The Validation Agent could not produce the revised "
+                "draft. The previous draft has not been overwritten."
+            )
+
+        validation = validation.model_copy(
+            update={
+                "draft": _merge_missing_details(
+                    validation.draft,
+                    validation.missing_details,
+                )
+            }
+        )
+
+        if _has_placeholder_rules(validation.draft.rules):
+            raise RuntimeError(
+                "The revised draft contains generic policy-writing "
+                "statements instead of actual business decisions."
+            )
+
+        await _save_validation(
+            session_id,
+            validation,
+        )
+
+        await _upsert_requirement(
+            session_id,
+            validation.draft,
+            "validated",
+        )
+
+        await update_session_status(
+            session_id,
+            "ready_for_confirmation",
+            domain=validation.draft.domain,
+        )
+
+        count, _, _ = await _get_clarification_history(
+            session_id
+        )
+
+        return {
+            "event": "requirement_draft_updated",
+            "session_id": session_id,
+            "requirement_id": requirement_id,
+            "draft": validation.draft.model_dump(),
+            "explanation": validation.explanation,
+            "questions_asked": count,
+            "minimum_questions": MIN_CLARIFICATION_QUESTIONS,
+            "maximum_questions": MAX_CLARIFICATION_QUESTIONS,
+            "unresolved_details": validation.draft.unresolved_details,
+            "requires_confirmation": True,
+        }
+
+    # -------------------------------------------------------------
+    # Enforce mandatory minimum of three questions
+    # -------------------------------------------------------------
+
+    validation = await _enforce_minimum_questions(
+        validation=validation,
+        gathered=gathered,
+        agent_context=agent_context,
+        question_count=question_count,
     )
 
+    # -------------------------------------------------------------
+    # Placeholder rule protection
+    # -------------------------------------------------------------
+
+    if (
+        validation.status == "ready_for_confirmation"
+        and validation.draft is not None
+        and _has_placeholder_rules(validation.draft.rules)
+    ):
+
+        if question_count >= MAX_CLARIFICATION_QUESTIONS:
+            raise RuntimeError(
+                "The Validation Agent returned placeholder rules "
+                "after the maximum clarification count. "
+                "The draft cannot be accepted as a valid specification."
+            )
+
+        logger.warning(
+            "Placeholder rules detected. Requesting clarification. "
+            "session_id=%s",
+            session_id,
+        )
+
+        validation = await _run_validation(
+            gathered=gathered,
+            conversation_history=agent_context,
+            questions_asked=question_count,
+            force_clarification=True,
+        )
+
+        if validation.status != "needs_clarification":
+            raise RuntimeError(
+                "Validation returned an incomplete draft instead of "
+                "a meaningful clarification question."
+            )
+
+    # -------------------------------------------------------------
+    # Duplicate clarification handling
+    # -------------------------------------------------------------
+
     if validation.status == "needs_clarification":
+
+        proposed = (validation.question or "").strip()
+
+        if not proposed:
+            raise ValueError(
+                "Validation requested clarification but returned no question."
+            )
+
+        if _is_duplicate_topic(
+            proposed,
+            clarification_history,
+        ):
+
+            logger.warning(
+                "Duplicate clarification detected. Retrying. "
+                "session_id=%s",
+                session_id,
+            )
+
+            validation = await _run_validation(
+                gathered=gathered,
+                conversation_history=agent_context,
+                questions_asked=question_count,
+                rejected_questions=[proposed],
+                force_clarification=True,
+            )
+
+            retry_question = (
+                validation.question or ""
+            ).strip()
+
+            if (
+                validation.status == "needs_clarification"
+                and _is_duplicate_topic(
+                    retry_question,
+                    clarification_history,
+                )
+            ):
+                raise RuntimeError(
+                    "Validation repeated a covered clarification topic "
+                    "after retry. No duplicate question was saved."
+                )
+
+            if validation.status == "ready_for_confirmation":
+                validation = await _enforce_minimum_questions(
+                    validation=validation,
+                    gathered=gathered,
+                    agent_context=agent_context,
+                    question_count=question_count,
+                )
+
+    # -------------------------------------------------------------
+    # Enforce maximum of five questions
+    # -------------------------------------------------------------
+
+    validation = await _enforce_maximum_questions(
+        validation=validation,
+        gathered=gathered,
+        agent_context=agent_context,
+        question_count=question_count,
+    )
+
+    # -------------------------------------------------------------
+    # Return clarification question
+    # -------------------------------------------------------------
+
+    if validation.status == "needs_clarification":
+
         question = (validation.question or "").strip()
 
         if not question:
             raise ValueError(
-                "Validation requires clarification but returned no question."
+                "Validation requested clarification but returned no question."
             )
 
-        current_count, current_normalized_questions, _ = (
-            await _get_clarification_history(session_id)
+        if _is_duplicate_topic(
+            question,
+            clarification_history,
+        ):
+            raise ValueError(
+                "Validation repeated a covered clarification topic. "
+                "The previous draft and conversation remain unchanged."
+            )
+
+        if question_count >= MAX_CLARIFICATION_QUESTIONS:
+            raise RuntimeError(
+                "Maximum clarification question limit exceeded."
+            )
+
+        await _save_validation(
+            session_id,
+            validation,
         )
 
-        if current_count >= MAX_CLARIFICATION_QUESTIONS:
-            raise ValueError("Clarification question limit reached.")
-
-        if _normalize_question(question) in current_normalized_questions:
-            raise ValueError("Duplicate clarification question prevented.")
-
         await _save_clarification(
-            session_id=session_id,
-            requirement_id=requirement_id,
-            question=question,
+            session_id,
+            requirement_id,
+            question,
         )
 
         await update_session_status(
@@ -512,26 +1053,60 @@ async def process_requirement_message(
             "awaiting_clarification",
         )
 
+        count, _, _ = await _get_clarification_history(
+            session_id
+        )
+
         return {
             "event": "clarification_question",
             "session_id": session_id,
             "requirement_id": requirement_id,
             "question": question,
-            "question_number": current_count + 1,
+            "question_number": count,
             "minimum_questions": MIN_CLARIFICATION_QUESTIONS,
             "maximum_questions": MAX_CLARIFICATION_QUESTIONS,
             "missing_details": validation.missing_details,
         }
 
+    # -------------------------------------------------------------
+    # Return review draft
+    # -------------------------------------------------------------
+
     if validation.draft is None:
         raise ValueError(
-            "Validation returned no draft for confirmation."
+            "Validation Agent returned no review draft."
         )
 
+    if question_count < MIN_CLARIFICATION_QUESTIONS:
+        raise RuntimeError(
+            "Cannot create a review draft before the mandatory "
+            f"{MIN_CLARIFICATION_QUESTIONS} clarification questions."
+        )
+
+    validation = validation.model_copy(
+        update={
+            "draft": _merge_missing_details(
+                validation.draft,
+                validation.missing_details,
+            )
+        }
+    )
+
+    if _has_placeholder_rules(validation.draft.rules):
+        raise RuntimeError(
+            "The review draft contains generic policy-writing "
+            "statements instead of actual business decisions."
+        )
+
+    await _save_validation(
+        session_id,
+        validation,
+    )
+
     await _upsert_requirement(
-        session_id=session_id,
-        details=validation.draft,
-        status="validated",
+        session_id,
+        validation.draft,
+        "validated",
     )
 
     await update_session_status(
@@ -540,13 +1115,17 @@ async def process_requirement_message(
         domain=validation.draft.domain,
     )
 
+    count, _, _ = await _get_clarification_history(
+        session_id
+    )
+
     return {
         "event": "requirement_draft",
         "session_id": session_id,
         "requirement_id": requirement_id,
         "draft": validation.draft.model_dump(),
         "explanation": validation.explanation,
-        "questions_asked": question_count,
+        "questions_asked": count,
         "minimum_questions": MIN_CLARIFICATION_QUESTIONS,
         "maximum_questions": MAX_CLARIFICATION_QUESTIONS,
         "unresolved_details": validation.draft.unresolved_details,
@@ -554,30 +1133,62 @@ async def process_requirement_message(
     }
 
 
+# ---------------------------------------------------------------------
+# Confirmation
+# ---------------------------------------------------------------------
+
+def _is_explicit_confirmation(message: str) -> bool:
+
+    value = _normalise_text(message)
+
+    accepted = {
+        "yes",
+        "yes confirm",
+        "confirm",
+        "confirmed",
+        "i confirm",
+        "yes i confirm",
+        "i approve",
+        "approve",
+        "i confirm the requirements",
+        "i approve the requirements",
+    }
+
+    return value in accepted
+
+
 async def _confirm_requirement(
     session_id: str,
     confirmation_message: str,
 ) -> dict:
-    """Persist a confirmed draft and create a version."""
-    if confirmation_message.casefold().strip() not in {
-        "yes",
-        "confirm",
-        "confirmed",
-        "i confirm",
-    }:
+    """
+    Persist the confirmed requirement version.
+
+    The review draft and its unresolved details remain in the
+    conversation audit history.
+    """
+
+    if not _is_explicit_confirmation(confirmation_message):
         raise ValueError(
-            "Send an explicit confirmation message to finalize."
+            "Send an explicit confirmation such as "
+            "'confirm' or 'yes, I confirm'."
         )
 
     async with AsyncSessionLocal() as db:
-        session = await db.get(RequirementSession, session_id)
+
+        session = await db.get(
+            RequirementSession,
+            session_id,
+        )
 
         if session is None:
-            raise ValueError(f"Session not found: {session_id}")
+            raise ValueError(
+                f"Session not found: {session_id}"
+            )
 
         if session.status != "ready_for_confirmation":
             raise ValueError(
-                "The session has no draft ready for confirmation."
+                "There is no review draft awaiting confirmation."
             )
 
         result = await db.execute(
@@ -592,34 +1203,51 @@ async def _confirm_requirement(
             .order_by(ConversationMessage.created_at.desc())
             .limit(1)
         )
-        latest_message = result.scalar_one_or_none()
 
-        if latest_message is None:
-            raise ValueError("No requirement draft was found.")
+        latest = result.scalar_one_or_none()
 
-        validation = json.loads(latest_message.content)
-        draft = validation.get("draft")
+        if latest is None:
+            raise ValueError(
+                "No review draft was found."
+            )
+
+        validation = json.loads(latest.content)
+        draft_data = validation.get("draft")
 
         if (
             validation.get("status") != "ready_for_confirmation"
-            or not isinstance(draft, dict)
+            or not isinstance(draft_data, dict)
         ):
             raise ValueError(
-                "The latest validation result is not a draft."
+                "The latest validation result is not a confirmable draft."
             )
 
-        policy_name = draft.get("policy_name")
-        if not isinstance(policy_name, str) or not policy_name.strip():
+        if (
+            not isinstance(draft_data.get("policy_name"), str)
+            or not draft_data["policy_name"].strip()
+        ):
             raise ValueError(
-                "Cannot confirm requirements without a policy name. "
-                "Please provide or generate a meaningful policy name first."
+                "A requirement name is required before confirmation."
             )
+
+        # Preserve the review draft and its unresolved items in the
+        # validation message. The confirmed version follows the
+        # existing downstream contract.
+        final_data = dict(draft_data)
+        final_data["unresolved_details"] = []
 
         version_result = await db.execute(
-            select(func.max(RequirementVersion.version_number))
-            .where(RequirementVersion.session_id == session_id)
+            select(
+                func.max(RequirementVersion.version_number)
+            )
+            .where(
+                RequirementVersion.session_id == session_id
+            )
         )
-        latest_version = version_result.scalar_one() or 0
+
+        version_number = (
+            version_result.scalar_one() or 0
+        ) + 1
 
         version_id = str(uuid4())
 
@@ -627,9 +1255,9 @@ async def _confirm_requirement(
             RequirementVersion(
                 requirement_version_id=version_id,
                 session_id=session_id,
-                version_number=latest_version + 1,
+                version_number=version_number,
                 requirements_json=json.dumps(
-                    draft,
+                    final_data,
                     ensure_ascii=False,
                 ),
                 validation_status="confirmed",
@@ -638,15 +1266,19 @@ async def _confirm_requirement(
 
         requirement_result = await db.execute(
             select(Requirement)
-            .where(Requirement.session_id == session_id)
+            .where(
+                Requirement.session_id == session_id
+            )
             .order_by(Requirement.requirement_id.asc())
             .limit(1)
         )
+
         requirement = requirement_result.scalar_one_or_none()
 
-        topic, description = _get_requirement_metadata(draft)
+        topic, description = _metadata(final_data)
 
         if requirement is None:
+
             requirement = Requirement(
                 requirement_id=str(uuid4()),
                 session_id=session_id,
@@ -654,14 +1286,17 @@ async def _confirm_requirement(
                 description=description,
                 status="confirmed",
             )
+
             db.add(requirement)
+
         else:
+
             requirement.topic = topic
             requirement.description = description
             requirement.status = "confirmed"
 
         session.status = "confirmed"
-        session.domain = draft.get("domain", "general")
+        session.domain = final_data.get("domain") or "general"
 
         db.add(
             ConversationMessage(
@@ -674,6 +1309,7 @@ async def _confirm_requirement(
         )
 
         requirement_id = requirement.requirement_id
+
         await db.commit()
 
     return {
@@ -681,6 +1317,7 @@ async def _confirm_requirement(
         "session_id": session_id,
         "requirement_id": requirement_id,
         "requirement_version_id": version_id,
-        "version_number": latest_version + 1,
+        "version_number": version_number,
         "message": "Requirements confirmed and saved.",
+        "unresolved_details": [],
     }
