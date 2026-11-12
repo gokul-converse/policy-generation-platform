@@ -1,14 +1,16 @@
-
 import json
 from functools import lru_cache
+from typing import Any
 
 from agent_framework import Agent
 
 from app.clients.foundry_client import get_foundry_client
 from app.prompts.repair_prompt import REPAIR_SYSTEM_PROMPT
 
+
 @lru_cache(maxsize=1)
 def get_ui_json_repair_agent() -> Agent:
+    """Create and reuse the agent that repairs invalid UI JSON."""
     return Agent(
         client=get_foundry_client(),
         name="UIJsonRepairAgent",
@@ -20,8 +22,9 @@ async def repair_ui_json(
     policy_text: str,
     invalid_output: str,
     errors: list[str],
-    schema: dict,
+    schema: dict[str, Any],
 ) -> str:
+    """Ask the repair agent to correct output using validation errors."""
     repair_agent = get_ui_json_repair_agent()
 
     repair_input = {

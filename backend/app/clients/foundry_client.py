@@ -1,7 +1,8 @@
 """Shared Microsoft Agent Framework Foundry client."""
 from agent_framework.foundry import FoundryChatClient
-from app.config.settings import settings
 from azure.identity import ClientSecretCredential
+
+from app.config.settings import settings
 
 
 def get_foundry_credential() -> ClientSecretCredential:
