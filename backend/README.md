@@ -45,67 +45,102 @@ documents available in the database, not arbitrary files or external
 knowledge sources. Requirement sessions are persisted; confirmation saves a
 versioned requirement snapshot, while cancellation ends the session.
 
-### 3. Policy generation and review
+### 3. Skill generation
 
-`POST /policies/generate` requires the confirmed `session_id` and
-`requirement_id`. The service loads requirements only from a confirmed
-session, adapts them into a common input format, and resolves policy title,
-domain, description, source-version metadata, and the requested skill command
-(default `/policy`). The policy-generation agent uses Azure AI Foundry and the
-resolved skill guidance to return a structured policy with sections and
-requirement-ID mappings.
+`POST /skills/generate` accepts a `session_id`, `requirement_id`, and optional
+`source_requirement_version_id`. The backend verifies that the session is
+confirmed, loads the requirement from the confirmed snapshot, and passes its
+validated requirements to `generate_and_save_skills`. That service calls
+`load_single_requirement` to load the confirmed source version and
+`generate_skills` to run the Foundry-backed generator.
 
-Before persistence, the backend rejects missing or placeholder policy
-content, then validates the draft for:
+The generator returns structured skills and validates them in two stages:
 
-- Non-empty sections and unique, non-empty section IDs.
-- Requirement IDs that exist in the source requirements.
-- Requirement-ID coverage across policy sections.
-- Preservation of numeric values and units in mapped policy content.
-- Configured placeholder tokens and unresolved clarification items.
+1. **Deterministic checks** enforce one skill per requirement ID, unique
+   lowercase kebab-case names, non-empty descriptions and instructions,
+   required Markdown headings, and valid requirement mappings.
+   `canonicalize_source_requirements` rebuilds each skill's Source
+   Requirements section from authoritative text, rather than trusting
+   model-generated copies; `validate_generated_skill_set` checks the result.
+2. **Semantic checks** use a separate validation agent to look for changed or
+   missing meaning, unsupported rules, conflicts, and other mismatches with
+   the source requirements. This check is performed by
+   `validate_generated_skills`.
 
-The validation report is stored with the policy and its initial version. The
-backend also writes a formatted text document to `data/policy.txt` and a
-versioned copy under `data/policies/`. Requirement-ID coverage is based on
-section citations; it is not a semantic proof that every requirement has
-actually been satisfied.
+Structural failures and semantic `FAIL` results are returned to the
+generator for repair, for up to three attempts by default. A semantic
+`NEEDS_CLARIFICATION` result stops generation; skills are not saved unless
+validation passes. Each successful skill is stored in the database as
+Markdown content in an initial `draft` version by `save_skill_set`, with its
+source requirement version recorded. Duplicate skill names already in the
+database are rejected.
 
-Policy review is section-based. `POST /policies/{policy_id}/modify` accepts a
-`section_id` and revision instructions; the backend reloads authoritative
-requirements and previously applied skills, revises only the requested
-section, checks its mappings and requested changes, and validates the whole
-policy before creating a new version. A `FAIL` result blocks version
-creation. A `NEEDS_CLARIFICATION` draft may still be saved. The approval
-endpoint changes a version's status to `approved` without performing
-validation checks, so clients should inspect the stored validation report
-before approving. Policy versions can be listed, retrieved, approved, or
-returned as formatted text.
+### 4. Policy generation and review
 
-### 4. Skill generation
+`POST /policies/generate` accepts a `skill_command` identifying one existing
+generated skill. The backend resolves that skill and its exact saved version.
+The skill's Source Requirements provide the policy-generation requirements
+and metadata (title, domain, and purpose); callers do not submit a separate
+requirement or session ID for this endpoint. Policy generation currently
+supports one generated skill per policy.
 
-`POST /skills/generate` requires a confirmed `session_id` and
-`requirement_id`. The backend loads the requirement from that session and
-passes it to the Azure AI Foundry skill-generation agent. The agent is
-instructed to create the minimum useful set of reusable skills, group related
-requirements where appropriate, avoid inventing rules, and cover every input
-requirement.
+`generate_and_save_policy` resolves the selected skill, extracts its
+requirements with `load_requirements_from_selected_skills`, and calls
+`generate_policy_from_skill`. The Foundry-backed policy agent generates a
+structured policy with numbered sections and requirement-ID mappings. It
+receives the exact selected skill version and a coverage checklist built from
+its Source Requirements. The skill provides drafting guidance, while its
+Source Requirements are the source text the policy must cover. Missing
+information or conflicts can be recorded in `unresolved_items`.
 
-Each generated skill must have a unique lowercase kebab-case name, a
-description, instructions, and one or more source requirement IDs. The
-backend validates the structured output, checks required Markdown headings
-and requirement coverage, and reconstructs the Source Requirements section
-from the authoritative requirement text so the IDs and source wording remain
-traceable. Validation failures are sent back for repair for up to three
-generation attempts. Successfully generated skills are stored as files and
-as initial `draft` database versions; duplicate names are rejected. The skill
-endpoints list skills and expose their details and version history.
+Before creating a policy, the backend rejects missing or placeholder content,
+then runs deterministic and semantic validation:
+
+- `validate_policy_draft` performs deterministic checks for section content
+  and IDs, handbook numbering, requirement-ID mappings and coverage,
+  numeric/unit preservation, and configured placeholders.
+- `validate_policy_semantics` compares actual policy meaning with the Source
+  Requirements and selected skill. A citation alone does not prove that a
+  requirement is implemented.
+- `merge_policy_validation_reports` combines both sets of findings.
+
+The combined validation report is stored with the policy version. A `FAIL`
+blocks initial policy creation and returns HTTP 409 with the validation
+comparison. `NEEDS_CLARIFICATION` does not block creation: the draft is saved
+with that validation status and its clarification items for review. Each
+policy version records the exact skill version used and the original source
+requirement lineage.
+
+`POST /policies/{policy_id}/modify` accepts overall policy feedback, not a
+section ID. The backend loads the latest policy and its exact skill version,
+then `modify_policy` calls `analyze_policy_feedback` to decide whether skill
+instructions, Source Requirements, or both need changes. If needed,
+`modify_skill_content` prepares the revision and
+`validate_skill_modification_output` checks its scope before a new skill
+version is created; the original skill version remains unchanged. Feedback
+may change the Source Requirements used for the regenerated policy. Those
+feedback-derived changes are stored in the new skill version; the original
+confirmed requirement snapshot is not updated, and the changed requirements
+are not independently confirmed by this workflow.
+
+The backend then regenerates the **complete policy** from the selected skill
+version, validates it, and saves a new policy version unless validation
+returns `FAIL`. `NEEDS_CLARIFICATION` versions can be saved with their report.
+The policy version records the exact skill version used and retains the
+original source requirement-version lineage. Because a revised skill version
+is committed before policy regeneration, it can remain in the database even
+if later policy generation or validation fails.
+
+Policy versions can be listed, retrieved, approved, or returned as formatted
+text. Approval activates the policy version and the exact skill versions
+referenced by it; inspect the saved validation report before approval.
 
 ### 5. UI definition generation
 
 `POST /api/ui/generate` sends policy text to the Foundry-backed agent, parses
 the response as JSON, and validates it against
-`schemas/policy-ui-contract.schema.json`. If parsing or validation fails, the
-backend makes up to two repair attempts before returning an error.
+`ui_contracts/policy-ui-contract.schema.json`. If parsing or validation fails,
+the backend makes up to two repair attempts before returning an error.
 
 ## Requirements
 
@@ -184,16 +219,16 @@ The API schema and request/response models are available at `/docs`.
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/health` | Check application process health |
-| `POST` | `/policies/generate` | Generate a policy from a confirmed requirement |
+| `POST` | `/policies/generate` | Generate a policy from one saved skill |
 | `GET` | `/policies` | List policies, with optional filters and pagination |
 | `GET` | `/policies/{policy_id}` | Retrieve a policy, optionally by version |
-| `POST` | `/policies/{policy_id}/modify` | Revise a policy and validate the changes |
+| `POST` | `/policies/{policy_id}/modify` | Apply overall feedback and regenerate a policy |
 | `GET` | `/policies/{policy_id}/versions` | List policy version history |
 | `GET` | `/policies/{policy_id}/versions/{version}` | Retrieve a specific policy version |
 | `POST` | `/policies/{policy_id}/versions/{version}/approve` | Approve a policy version |
 | `GET` | `/policies/{policy_id}/text` | Retrieve formatted policy text |
 | `GET` | `/skills/slash-commands` | List skills for slash-command autocomplete |
-| `POST` | `/skills/generate` | Generate skills from a confirmed requirement |
+| `POST` | `/skills/generate` | Generate and validate skills from a confirmed requirement |
 | `GET` | `/skills` | List generated skills |
 | `GET` | `/skills/{skill_id}` | Retrieve skill details |
 | `GET` | `/skills/{skill_id}/versions` | List versions of a skill |
@@ -201,9 +236,10 @@ The API schema and request/response models are available at `/docs`.
 | `POST` | `/api/ui/generate` | Generate a validated UI definition from policy text |
 | `WebSocket` | `/ws/requirements` | Gather and process requirements interactively |
 
-The policy and skill generation endpoints expect requirement/session data
-already available to the backend; see the request schemas in `/docs` for the
-required payloads.
+The skill-generation endpoint expects a confirmed requirement/session already
+available to the backend. Policy generation instead expects the slash-command
+of an existing generated skill. See the request schemas in `/docs` for exact
+payloads and fields.
 
 ## Backend layout
 

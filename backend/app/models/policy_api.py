@@ -73,32 +73,35 @@ class PolicyValidationReport(BaseModel):
     )
 
 
+
 class PolicyGenerationRequest(BaseModel):
-    """Generate a policy from confirmed requirements."""
+    """Generate a policy using an existing skill."""
 
     model_config = ConfigDict(
         extra="forbid",
         str_strip_whitespace=True,
     )
 
-    session_id: str = Field(min_length=1)
-    requirement_id: str = Field(min_length=1)
+    skill_command: str = Field(min_length=1)
 
-    source_requirement_version_id: str | None = None
 
-    skill_command: str | None = None
 
 
 class PolicyModificationRequest(BaseModel):
-    """Modify an existing policy section."""
+    """Regenerate the complete policy from overall user feedback."""
 
     model_config = ConfigDict(
         extra="forbid",
         str_strip_whitespace=True,
     )
 
-    section_id: str = Field(min_length=1)
-    instructions: str = Field(min_length=1)
+    feedback: str = Field(
+        min_length=1,
+        description=(
+            "Overall feedback for the complete policy, "
+            "not feedback for an individual section."
+        ),
+    )
 
 
 class PolicyVersionSummary(BaseModel):
@@ -116,37 +119,49 @@ class PolicyVersionSummary(BaseModel):
     created_at: datetime
 
 
+
 class PolicyResponse(BaseModel):
-    """Complete database-backed policy response for the frontend."""
+    """Complete  policy response """
 
     model_config = ConfigDict(extra="forbid")
 
+    # Policy identity
     policy_id: UUID
     version: int
 
+    # Policy metadata
     title: str
     description: str | None = None
     domain: str
 
-    # Overall policy lifecycle.
+    # Overall policy lifecycle
     policy_status: PolicyStatus
 
-    # Individual version lifecycle.
+    # Individual version lifecycle
     status: PolicyVersionStatus
 
-    # Structured content for editable frontend sections.
+    # Structured policy content
     sections: list[PolicySectionModel]
 
-    # Complete readable policy document from the database.
+    # Readable policy document
     policy_text: str
 
-    # Skill references used for this version.
-    applied_skill_ids: list[str] = Field(default_factory=list)
+    # Skill lineage
+    applied_skill_ids: list[str] = Field(
+        default_factory=list,
+    )
 
+    applied_skill_version_ids: list[str] = Field(
+        default_factory=list,
+    )
+
+    # Original source requirement lineage
     source_requirement_version_id: str | None = None
 
+    # Validation results
     validation_status: ValidationStatus
     validation_report: PolicyValidationReport | None = None
 
+    # Version information
     change_summary: str | None = None
     created_at: datetime
