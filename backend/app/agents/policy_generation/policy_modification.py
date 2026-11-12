@@ -151,6 +151,7 @@ def _parse_structured_result(
 
 
 
+
 async def analyze_policy_feedback(
     feedback: str,
     existing_skill_instructions: str,
@@ -161,52 +162,44 @@ async def analyze_policy_feedback(
     require modification.
     """
 
-    # 1. Validate inputs safely
-    def validate_input(value, field_name: str) -> str:
-        if value is None:
-            raise ValueError(f"{field_name} cannot be None.")
+    # Validate None values
+    if feedback is None:
+        raise ValueError("Policy feedback cannot be None.")
 
-        if not isinstance(value, str):
-            raise TypeError(
-                f"{field_name} must be a string, "
-                f"received {type(value).__name__}."
-            )
+    if existing_skill_instructions is None:
+        raise ValueError("Existing skill instructions cannot be None.")
 
-        value = value.strip()
+    if existing_source_requirements is None:
+        raise ValueError("Existing Source Requirements cannot be None.")
 
-        if not value:
-            raise ValueError(f"{field_name} cannot be empty.")
+    # Validate input types
+    if not isinstance(feedback, str):
+        raise ValueError("Policy feedback must be a string.")
 
-        return value
+    if not isinstance(existing_skill_instructions, str):
+        raise ValueError("Existing skill instructions must be a string.")
 
-    feedback = validate_input(feedback, "Policy feedback")
+    if not isinstance(existing_source_requirements, str):
+        raise ValueError("Existing Source Requirements must be a string.")
 
-    existing_skill_instructions = validate_input(
-        existing_skill_instructions,
-        "Existing skill instructions",
-    )
+    # Existing validations
+    if not feedback or not feedback.strip():
+        raise ValueError("Policy feedback cannot be empty.")
 
-    existing_source_requirements = validate_input(
-        existing_source_requirements,
-        "Existing Source Requirements",
-    )
+    if not existing_skill_instructions.strip():
+        raise ValueError("Existing skill instructions cannot be empty.")
 
-    # 2. Prepare prompt data
+    if not existing_source_requirements.strip():
+        raise ValueError("Existing Source Requirements cannot be empty.")
+
     prompt_data = {
-        "user_feedback": feedback,
+        "user_feedback": feedback.strip(),
         "existing_skill_instructions": existing_skill_instructions,
         "existing_source_requirements": existing_source_requirements,
     }
 
-    # 3. Initialize agent
     agent = get_policy_feedback_understanding_agent()
 
-    if agent is None:
-        raise RuntimeError(
-            "Policy feedback understanding agent is not initialized."
-        )
-
-    # 4. Execute agent
     result = await agent.run(
         "Analyse the following overall policy feedback and decide "
         "whether skill instructions, Source Requirements, or both "
@@ -218,77 +211,17 @@ async def analyze_policy_feedback(
         )
     )
 
-    if result is None:
-        raise ValueError(
-            "Policy feedback agent returned None."
-        )
-
-    # 5. Parse structured response
-    try:
-        analysis = _parse_structured_result(
-            result,
-            PolicyFeedbackAnalysis,
-        )
-    except (AttributeError, TypeError, ValueError) as exc:
-        raise ValueError(
-            f"Failed to parse policy feedback response: {exc}"
-        ) from exc
-
-    if analysis is None:
-        raise ValueError(
-            "Policy feedback analysis returned None."
-        )
-
-    # 6. Validate response object
-    if not isinstance(analysis, PolicyFeedbackAnalysis):
-        raise TypeError(
-            "Invalid feedback analysis response. "
-            f"Expected PolicyFeedbackAnalysis, "
-            f"received {type(analysis).__name__}."
-        )
-
-    # 7. Safely access response attributes
-    change_scope = getattr(analysis, "change_scope", None)
-
-    requires_skill_modification = getattr(
-        analysis,
-        "requires_skill_modification",
-        None,
+    analysis = _parse_structured_result(
+        result,
+        PolicyFeedbackAnalysis,
     )
 
-    if change_scope is None:
-        raise ValueError("Feedback analysis change_scope cannot be None.")
+    if not isinstance(analysis, PolicyFeedbackAnalysis):
+        raise TypeError("Invalid feedback analysis response.")
 
-    if requires_skill_modification is None:
-        raise ValueError(
-            "Feedback analysis requires_skill_modification cannot be None."
-        )
+    expected_modification = analysis.change_scope != "none"
 
-    if not isinstance(change_scope, str):
-        raise TypeError("change_scope must be a string.")
-
-    if not isinstance(requires_skill_modification, bool):
-        raise TypeError(
-            "requires_skill_modification must be a boolean."
-        )
-
-    # 8. Validate modification scope
-    valid_scopes = {
-        "none",
-        "skill",
-        "requirements",
-        "both",
-    }
-
-    if change_scope not in valid_scopes:
-        raise ValueError(
-            f"Invalid change_scope: {change_scope}"
-        )
-
-    # 9. Validate business logic
-    expected_modification = change_scope in {"skill", "both"}
-
-    if requires_skill_modification != expected_modification:
+    if analysis.requires_skill_modification != expected_modification:
         raise ValueError(
             "Feedback analysis returned inconsistent modification fields."
         )
@@ -300,7 +233,6 @@ async def analyze_policy_feedback(
 # ============================================================================
 # Skill modification
 # ============================================================================
-
 
 
 async def modify_skill_content(
