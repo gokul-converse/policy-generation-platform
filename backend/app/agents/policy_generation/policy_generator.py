@@ -1,7 +1,7 @@
-
 """Generate and revise enterprise policies using Microsoft Agent Framework."""
 
 import json
+import re
 from typing import Any
 from uuid import UUID
 
@@ -11,11 +11,13 @@ from app.common.logger import get_logger
 from app.context.database_skill_source import DatabaseSkillsSource
 from app.models.policy_api import PolicySectionModel
 from app.models.skill_api import ValidatedRequirementInput
+from app.models.skill_db import SkillVersion
 from app.prompts.policy import (
     ENTERPRISE_POLICY_INSTRUCTIONS,
-    SECTION_REVISION_INSTRUCTIONS,
 )
+from app.services.skill_file_service import split_skill_markdown
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 logger = get_logger(__name__)
@@ -99,6 +101,142 @@ def create_policy_skills_provider(
         disable_load_skill_approval=True,
         disable_read_skill_resource_approval=True,
     )
+
+
+
+async def load_requirements_from_selected_skills(
+    selected_skill_version_ids: list[UUID],
+    session_factory: async_sessionmaker[AsyncSession],
+) -> list[dict[str, Any]]:
+    """
+    Load Source Requirements from exact selected skill versions.
+
+    Supports multiline JSON requirement content.
+    Returns the standard requirement structure expected by
+    _normalize_requirements().
+    """
+
+    if not selected_skill_version_ids:
+        raise ValueError(
+            "At least one skill version must be selected."
+        )
+
+    async with session_factory() as session:
+        result = await session.scalars(
+            select(SkillVersion).where(
+                SkillVersion.id.in_(selected_skill_version_ids)
+            )
+        )
+        versions = list(result.all())
+
+    versions_by_id = {
+        version.id: version
+        for version in versions
+    }
+
+    missing_ids = (
+        set(selected_skill_version_ids) - set(versions_by_id)
+    )
+
+    if missing_ids:
+        raise ValueError(
+            "Selected skill versions were not found: "
+            f"{sorted(str(item) for item in missing_ids)}"
+        )
+
+    requirements_by_id: dict[str, dict[str, Any]] = {}
+
+    for version_id in selected_skill_version_ids:
+        version = versions_by_id[version_id]
+
+        if not version.content:
+            raise ValueError(
+                f"Skill version {version_id} has empty content."
+            )
+
+        _, _, source_requirements = split_skill_markdown(
+            version.content
+        )
+
+        if not source_requirements.strip():
+            raise ValueError(
+                f"Skill version {version_id} has no Source Requirements."
+            )
+
+        lines = source_requirements.splitlines()
+
+        if not lines or lines[0].strip() != "## Source Requirements":
+            raise ValueError(
+                f"Invalid Source Requirements heading in skill version "
+                f"{version_id}."
+            )
+
+        requirement_blocks: list[str] = []
+        current_block: list[str] = []
+
+        for line in lines[1:]:
+            if line.strip().startswith("- "):
+                if current_block:
+                    requirement_blocks.append(
+                        "\n".join(current_block).strip()
+                    )
+
+                current_block = [line.strip()]
+
+            elif current_block:
+                current_block.append(line)
+
+            elif line.strip():
+                raise ValueError(
+                    f"Invalid Source Requirements format in "
+                    f"skill version {version_id}: {line!r}"
+                )
+
+        if current_block:
+            requirement_blocks.append(
+                "\n".join(current_block).strip()
+            )
+
+        for block in requirement_blocks:
+            requirement_entry = block[2:].strip()
+
+            requirement_id, separator, requirement_text = (
+                requirement_entry.partition(":")
+            )
+
+            requirement_id = requirement_id.strip()
+            requirement_text = requirement_text.strip()
+
+            if not separator or not requirement_id or not requirement_text:
+                raise ValueError(
+                    f"Invalid requirement entry in skill version "
+                    f"{version_id}: {block!r}"
+                )
+
+            existing = requirements_by_id.get(requirement_id)
+
+            if existing:
+                if existing["text"] != requirement_text:
+                    raise ValueError(
+                        f"Conflicting text found for requirement "
+                        f"{requirement_id!r} across selected skills."
+                    )
+                continue
+
+          
+            requirements_by_id[requirement_id] = {
+                "requirement_id": requirement_id,
+                "text": requirement_text,
+                "status": "skill_source",
+                "source_skill_version_id": str(version_id),
+            }
+
+    if not requirements_by_id:
+        raise ValueError(
+            "No requirements could be extracted from selected skills."
+        )
+
+    return list(requirements_by_id.values())
 
 
 # ============================================================================
@@ -193,21 +331,25 @@ def _normalize_skill_version_ids(
     return normalized
 
 
+
 def _validate_policy_generation_output(
     policy_output: StructuredPolicyGenerationOutput,
     requirements: list[dict[str, Any]],
 ) -> None:
     """
-    Validate the structural integrity of generated policy output.
-
-    Detailed semantic and business-rule validation is handled
-    by the separate policy validation service.
+    Validate generated policy structure, section numbering,
+    and requirement traceability.
     """
+
     if not policy_output.title or not policy_output.title.strip():
-        raise ValueError("Generated policy title cannot be empty.")
+        raise ValueError(
+            "Generated policy title cannot be empty."
+        )
 
     if not policy_output.domain or not policy_output.domain.strip():
-        raise ValueError("Generated policy domain cannot be empty.")
+        raise ValueError(
+            "Generated policy domain cannot be empty."
+        )
 
     if not policy_output.sections:
         raise ValueError(
@@ -219,88 +361,258 @@ def _validate_policy_generation_output(
         for item in requirements
     }
 
-    section_ids: set[str] = set()
+    seen_section_ids: set[str] = set()
+    main_section_numbers: list[int] = []
+    subsection_counts: dict[int, int] = {}
 
     for section in policy_output.sections:
-        if not section.section_id or not section.section_id.strip():
+
+        section_id = section.section_id.strip()
+
+        if not re.fullmatch(r"\d+(?:\.\d+)?", section_id):
             raise ValueError(
-                "Every policy section must have a section_id."
+                f"Invalid section ID '{section_id}'. "
+                "Use handbook numbering such as 1, 1.1, 1.2."
             )
 
-        if section.section_id in section_ids:
+        if section_id in seen_section_ids:
             raise ValueError(
-                f"Duplicate policy section ID: {section.section_id}"
+                f"Duplicate policy section ID: {section_id}"
             )
 
-        section_ids.add(section.section_id)
+        seen_section_ids.add(section_id)
 
-        if not section.content or not section.content.strip():
+        if not section.title.strip():
             raise ValueError(
-                f"Policy section {section.section_id!r} has empty content."
+                f"Section {section_id} has an empty title."
+            )
+
+        if not section.content.strip():
+            raise ValueError(
+                f"Section {section_id} has empty content."
             )
 
         unknown_ids = (
-            set(section.requirement_ids) - known_requirement_ids
+            set(section.requirement_ids)
+            - known_requirement_ids
         )
 
         if unknown_ids:
             raise ValueError(
-                f"Policy section {section.section_id!r} contains "
-                f"unknown requirement IDs: {sorted(unknown_ids)}"
+                f"Section {section_id} contains unknown "
+                f"requirement IDs: {sorted(unknown_ids)}"
             )
+
+        # Validate main section numbering.
+        if "." not in section_id:
+            main_number = int(section_id)
+
+            expected_number = len(main_section_numbers) + 1
+
+            if main_number != expected_number:
+                raise ValueError(
+                    f"Invalid main section numbering. "
+                    f"Expected {expected_number}, got {main_number}."
+                )
+
+            main_section_numbers.append(main_number)
+
+        # Validate subsection numbering.
+        else:
+            main_part, subsection_part = section_id.split(".")
+
+            main_number = int(main_part)
+            subsection_number = int(subsection_part)
+
+            if main_number not in main_section_numbers:
+                raise ValueError(
+                    f"Subsection {section_id} has no preceding "
+                    f"main section {main_number}."
+                )
+
+            expected_subsection = (
+                subsection_counts.get(main_number, 0) + 1
+            )
+
+            if subsection_number != expected_subsection:
+                raise ValueError(
+                    f"Invalid subsection numbering for section "
+                    f"{main_number}. Expected "
+                    f"{main_number}.{expected_subsection}, "
+                    f"got {section_id}."
+                )
+
+            subsection_counts[main_number] = subsection_number
+
+
 # ============================================================================
 # Policy generation
 # ============================================================================
 
-async def generate_policy_from_requirements(
-    requirements: list[ValidatedRequirementInput] | list[dict[str, Any]],
+
+async def generate_policy_from_skill(
+    selected_skill_version_ids: list[UUID],
     custom_title: str | None = None,
     domain: str | None = None,
     custom_description: str | None = None,
-    skill_instructions: str | None = None,
     client: Any = None,
-    selected_skill_version_ids: list[UUID] | None = None,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
+    additional_generation_guidance: str | None = None,
 ) -> StructuredPolicyGenerationOutput:
     """
-    Generate an enterprise policy from validated requirements
-    using selected database-backed skill versions.
+    Generate a complete enterprise policy using exact selected
+    skill versions and their Source Requirements.
+
+    Dynamically builds a requirement coverage checklist so the
+    generator preserves every substantive requirement.
     """
-    if not requirements:
-        raise ValueError(
-            "At least one validated requirement is required."
-        )
 
-    # 1. Normalize and validate authoritative requirements.
-    normalized_requirements = _normalize_requirements(requirements)
+    # 1. Validate database session factory.
+    if session_factory is None:
+        raise ValueError("Database session factory is required.")
 
-    # 2. Normalize selected skill-version identifiers.
+    # 2. Normalize selected skill version IDs.
     selected_skill_version_ids = _normalize_skill_version_ids(
         selected_skill_version_ids
     )
 
-    # 3. Initialize the LLM client.
+    if not selected_skill_version_ids:
+        raise ValueError(
+            "At least one skill version must be selected."
+        )
+
+    # 3. Extract requirements from exact selected skill versions.
+    requirements = await load_requirements_from_selected_skills(
+        selected_skill_version_ids=selected_skill_version_ids,
+        session_factory=session_factory,
+    )
+
+    normalized_requirements = _normalize_requirements(
+        requirements
+    )
+
+    # 4. Build a dynamic requirement coverage checklist.
+    requirement_coverage_checklist: list[dict[str, Any]] = []
+
+    for requirement in normalized_requirements:
+        requirement_id = requirement["requirement_id"]
+        requirement_text = requirement["text"]
+
+        try:
+            parsed_requirement = json.loads(requirement_text)
+        except (json.JSONDecodeError, TypeError):
+            parsed_requirement = None
+
+        if isinstance(parsed_requirement, dict):
+            for field_name, field_value in parsed_requirement.items():
+                requirement_coverage_checklist.append(
+                    {
+                        "requirement_id": requirement_id,
+                        "source_field": field_name,
+                        "source_content": field_value,
+                        "coverage_instruction": (
+                            "Preserve every substantive statement "
+                            "and condition in this field."
+                        ),
+                    }
+                )
+
+        else:
+            requirement_coverage_checklist.append(
+                {
+                    "requirement_id": requirement_id,
+                    "source_field": "requirement_text",
+                    "source_content": requirement_text,
+                    "coverage_instruction": (
+                        "Preserve every substantive statement "
+                        "and condition in this requirement."
+                    ),
+                }
+            )
+
+    if not requirement_coverage_checklist:
+        raise ValueError(
+            "Could not build the requirement coverage checklist."
+        )
+
+    # 5. Initialize LLM client and skill provider.
     llm_client = client or get_foundry_client()
 
-    # 4. Load only the selected generated skill versions.
     skills_provider = create_policy_skills_provider(
         selected_skill_version_ids=selected_skill_version_ids,
         session_factory=session_factory,
     )
 
-    # 5. Prepare policy-generation instructions.
-    system_instructions = ENTERPRISE_POLICY_INSTRUCTIONS
+    # 6. Prepare system instructions.
+    system_instructions = (
+        ENTERPRISE_POLICY_INSTRUCTIONS
+        + """
 
-    if skill_instructions:
-        system_instructions += (
-            "\n\n## Additional Explicit Skill Guidance\n"
-            "Use this guidance only when relevant to the supplied "
-            "validated requirements. Skills provide operational guidance "
-            "and must never override authoritative requirements.\n"
-            f"{skill_instructions}"
-        )
+## SELECTED SKILL SOURCE RULES
 
-    # 6. Initialize the policy-generation agent.
+The selected skill versions provide policy-drafting guidance
+and their Source Requirements.
+
+The Source Requirements extracted from the exact selected
+skill versions are the requirement input for this generation.
+
+Do not retrieve or assume different requirement text from
+an external requirement database.
+
+Source Requirements have authority over skill instructions
+when their content conflicts.
+
+Do not describe feedback-derived requirement changes as
+independently validated or approved.
+
+Preserve all requirement IDs, scope conditions, numeric values,
+responsibilities, timelines, and approval rules.
+
+Do not invent unsupported business rules.
+
+## REQUIREMENT COVERAGE CHECKLIST
+
+The generation input contains a dynamically generated
+requirement_coverage_checklist.
+
+Use it to verify every field and substantive statement in
+the selected Source Requirements.
+
+A requirement is not covered merely because its ID appears
+in a policy section.
+
+Every substantive rule must be represented in policy content.
+
+In particular:
+- Preserve all scope statements.
+- Preserve numeric limits explicitly.
+- Preserve approval conditions explicitly.
+- Preserve all independent rules.
+- Do not omit requirements contained in JSON fields.
+
+## ADDITIONAL USER FEEDBACK RULES
+
+Consider additional user feedback when generating the policy.
+
+Apply relevant feedback to policy wording, structure,
+clarifications, and presentation.
+
+When feedback changes a business requirement, use the
+corresponding Source Requirements from the selected skill version.
+
+Do not introduce a business requirement that is absent from
+the selected skill versions.
+
+If feedback conflicts with the selected Source Requirements,
+do not silently override them. Record the conflict in
+unresolved_items.
+
+Additional generation guidance must not override
+Source Requirements or introduce unsupported business rules.
+"""
+    )
+
+    # 7. Initialize policy generation agent.
     agent = Agent(
         client=llm_client,
         name="EnterprisePolicyGeneratorAgent",
@@ -311,44 +623,91 @@ async def generate_policy_from_requirements(
         },
     )
 
-    # 7. Prepare the generation input.
+    # 8. Prepare generation input.
     prompt_data = {
         "title": custom_title,
         "domain": domain,
         "description": custom_description or "",
-        "requirements": normalized_requirements,
+        "source_requirements": normalized_requirements,
+        "requirement_coverage_checklist": (
+            requirement_coverage_checklist
+        ),
         "selected_skill_version_ids": [
             str(version_id)
             for version_id in selected_skill_version_ids
         ],
+        "additional_generation_guidance": (
+            additional_generation_guidance.strip()
+            if additional_generation_guidance
+            else None
+        ),
         "skill_usage_instruction": (
-            "Use only the selected generated skills loaded from the database. "
-            "Use their instructions when relevant to the policy requirements. "
-            "Do not load or refer to built-in filesystem skills. "
-            "Do not treat skill instructions as authoritative business rules. "
-            "Validated requirements always take precedence."
+            "Use the selected skill versions for drafting guidance. "
+            "Use the supplied Source Requirements as the authoritative "
+            "business-rule source. Follow the requirement coverage "
+            "checklist to preserve every substantive requirement. "
+            "Do not introduce unsupported requirements."
         ),
     }
 
+    # 9. Prepare generation prompt.
     prompt = (
-        "Generate a complete enterprise policy draft using the supplied "
-        "validated requirements.\n\n"
-        "Preserve all requirement IDs, conditions, numeric values, "
-        "timelines, responsibilities, and approval rules.\n"
-        "Do not invent unsupported business rules or workflows.\n"
-        "Record missing information and unresolved conflicts in "
-        "unresolved_items.\n"
-        "Use selected Agent Skills only as supporting guidance.\n\n"
-        + json.dumps(prompt_data, indent=2, ensure_ascii=False)
+        "Generate a complete enterprise policy draft using the "
+        "selected skill versions and their Source Requirements.\n\n"
+
+        "IMPORTANT: Before drafting, inspect every entry in "
+        "requirement_coverage_checklist.\n\n"
+
+        "Preserve every substantive requirement, including "
+        "all scope statements, eligibility conditions, numeric "
+        "limits, units, timelines, responsibilities, permissions, "
+        "obligations, restrictions, exceptions, and approvals.\n\n"
+
+        "Do not omit a condition because it appears in a scope "
+        "field instead of a rules list.\n\n"
+
+        "Do not replace a specific numeric limit with vague wording.\n\n"
+
+        "For every source requirement, ensure the generated policy "
+        "explicitly represents all its substantive statements.\n\n"
+
+        "Map each policy section to the correct source requirement IDs. "
+        "Do not claim complete coverage when only part of a requirement "
+        "is represented.\n\n"
+
+        "Do not invent unsupported business rules or workflows.\n\n"
+
+        "Apply additional user feedback only when it is consistent "
+        "with the selected Source Requirements.\n\n"
+
+        "If feedback conflicts with the selected Source Requirements, "
+        "do not silently override them. Record the conflict in "
+        "unresolved_items.\n\n"
+
+        "If essential information is missing, record it in "
+        "unresolved_items without inventing a decision.\n\n"
+
+        "Generate the complete policy, not individual sections.\n\n"
+
+        "Return only StructuredPolicyGenerationOutput.\n\n"
+
+        + json.dumps(
+            prompt_data,
+            indent=2,
+            ensure_ascii=False,
+            default=str,
+        )
     )
 
-    # 8. Execute policy generation.
+    # 10. Execute policy generation.
     result = await agent.run(prompt)
 
-    # 9. Parse structured output.
+    # 11. Parse structured output.
     if getattr(result, "value", None) is not None:
-        policy_output = StructuredPolicyGenerationOutput.model_validate(
-            result.value
+        policy_output = (
+            StructuredPolicyGenerationOutput.model_validate(
+                result.value
+            )
         )
     else:
         result_text = getattr(result, "text", None)
@@ -364,7 +723,7 @@ async def generate_policy_from_requirements(
             )
         )
 
-    # 10. Apply explicit metadata overrides.
+    # 12. Apply explicitly supplied policy metadata.
     if custom_title:
         policy_output.title = custom_title
 
@@ -374,164 +733,23 @@ async def generate_policy_from_requirements(
     if custom_description and not policy_output.description:
         policy_output.description = custom_description
 
-    # 11. Validate structural integrity.
+    # 13. Validate structural integrity.
     _validate_policy_generation_output(
         policy_output=policy_output,
         requirements=normalized_requirements,
     )
 
+    # 14. Log generation result.
     logger.info(
-        "Policy generated successfully. Title=%s, sections=%d, "
-        "requirements=%d, selected_skill_versions=%d.",
+        "Policy generated successfully. "
+        "Title=%s, sections=%d, requirements=%d, "
+        "coverage_checklist_items=%d, selected_skill_versions=%d",
         policy_output.title,
         len(policy_output.sections),
         len(normalized_requirements),
+        len(requirement_coverage_checklist),
         len(selected_skill_version_ids),
     )
 
     return policy_output
 
-# ============================================================================
-# Policy section modification
-# ============================================================================
-
-async def revise_policy_section_agent(
-    current_section: PolicySectionModel,
-    user_instructions: str,
-    all_requirements: list[ValidatedRequirementInput] | list[dict[str, Any]],
-    client: Any = None,
-    selected_skill_version_ids: list[UUID] | None = None,
-    session_factory: async_sessionmaker[AsyncSession] | None = None,
-) -> PolicySectionModel:
-    """
-    Revise a policy section while preserving its identity,
-    original requirement mappings, and unrelated content.
-    """
-    if not user_instructions or not user_instructions.strip():
-        raise ValueError(
-            "Policy revision instructions cannot be empty."
-        )
-
-    # 1. Validate authoritative requirements.
-    normalized_requirements = _normalize_requirements(
-        all_requirements
-    )
-
-    known_requirement_ids = {
-        item["requirement_id"]
-        for item in normalized_requirements
-    }
-
-    original_requirement_ids = set(
-        current_section.requirement_ids
-    )
-
-    unknown_original_ids = (
-        original_requirement_ids - known_requirement_ids
-    )
-
-    if unknown_original_ids:
-        raise ValueError(
-            "The original section contains requirement IDs that are "
-            f"not present in the supplied authoritative requirements: "
-            f"{sorted(unknown_original_ids)}"
-        )
-
-    # 2. Normalize selected skill versions.
-    selected_skill_version_ids = _normalize_skill_version_ids(
-        selected_skill_version_ids
-    )
-
-    # 3. Initialize the LLM client.
-    llm_client = client or get_foundry_client()
-
-    # 4. Load the original selected generated skill versions.
-    skills_provider = create_policy_skills_provider(
-        selected_skill_version_ids=selected_skill_version_ids,
-        session_factory=session_factory,
-    )
-
-    # 5. Initialize revision agent.
-    agent = Agent(
-        client=llm_client,
-        name="PolicySectionRevisionAgent",
-        instructions=SECTION_REVISION_INSTRUCTIONS,
-        context_providers=[skills_provider],
-        default_options={
-            "response_format": PolicySectionModel,
-        },
-    )
-
-    # 6. Prepare original and revised context.
-    prompt_data = {
-        "original_section": current_section.model_dump(),
-        "revision_instructions": user_instructions,
-        "authoritative_requirements": normalized_requirements,
-        "selected_skill_version_ids": [
-            str(version_id)
-            for version_id in selected_skill_version_ids
-        ],
-        "revision_rules": [
-            "Understand the semantic intent of the requested modification.",
-            "Compare the original section with the requested change.",
-            "Modify only content relevant to the request.",
-            "Preserve unrelated content.",
-            "Preserve the original section ID.",
-            "Preserve all original requirement IDs.",
-            "Do not invent requirement IDs.",
-            "Do not remove unrelated requirement mappings.",
-            "Do not introduce unsupported business rules.",
-            "Do not change numeric values unless explicitly requested ",
-            "and supported by the authoritative requirements.",
-            "If the requested modification conflicts with authoritative ",
-            "requirements, do not silently apply it.",
-            "Use selected skills only as supporting guidance.",
-            "Validated requirements take precedence over skill instructions.",
-        ],
-    }
-
-    # 7. Execute revision.
-    result = await agent.run(
-        "Revise the supplied policy section according to the user's "
-        "modification instructions.\n\n"
-        "Understand the requested change semantically. Compare the original "
-        "section with the requested result. Preserve unrelated content and "
-        "requirement traceability. Do not invent unsupported rules.\n\n"
-        + json.dumps(prompt_data, indent=2, ensure_ascii=False)
-    )
-
-    # 8. Parse structured output.
-    if getattr(result, "value", None) is not None:
-        revised = PolicySectionModel.model_validate(result.value)
-    else:
-        result_text = getattr(result, "text", None)
-
-        if not result_text:
-            raise ValueError(
-                "Policy revision agent returned no structured output."
-            )
-
-        revised = PolicySectionModel.model_validate_json(
-            result_text
-        )
-
-    # 9. Preserve original section identity and exact requirement mapping.
-    revised.section_id = current_section.section_id
-
-    revised.requirement_ids = list(
-        current_section.requirement_ids
-    )
-
-    if not revised.content or not revised.content.strip():
-        raise ValueError(
-            "Policy revision returned empty section content."
-        )
-
-    logger.info(
-        "Policy section revision completed. Section=%s, "
-        "preserved_requirement_ids=%s.",
-        revised.section_id,
-        revised.requirement_ids,
-    )
-
-    return revised

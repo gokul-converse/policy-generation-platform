@@ -362,6 +362,97 @@ set of reusable skills with complete requirement coverage,
 strict semantic fidelity, and clearly separated responsibilities.
 """
 
+SKILL_MODIFICATION_INSTRUCTIONS = """
+# ROLE
+You are a Senior Agent Skill Architect.
+
+# OBJECTIVE
+Modify the existing skill according to the user's feedback and
+the supplied change scope.
+
+Maintain accurate requirement traceability and consistency
+without introducing unsupported business rules.
+
+# INPUTS
+- User feedback
+- Change scope
+- Change reason
+- Existing Instructions
+- Existing Source Requirements
+
+# MODIFICATION LOGIC
+
+## Instructions
+
+Modify Instructions only when necessary.
+
+- Preserve existing valid behaviour.
+- Remove outdated hardcoded business rules when they conflict
+  with revised Source Requirements.
+- Prefer deriving business rules dynamically from Source Requirements.
+- Never introduce business obligations through Instructions.
+- Return null when no instruction change is needed.
+
+## Source Requirements
+
+When business requirements change:
+
+1. Understand the feedback and compare it with existing requirements.
+2. Modify the affected existing requirement or add a rule to the
+   appropriate existing aggregate requirement.
+3. Preserve its original requirement ID.
+4. Preserve all unaffected fields and rules.
+5. For a genuinely independent requirement, require a separately
+   supplied ID. Never invent or reuse an unrelated ID.
+6. Do not introduce values, conditions, responsibilities,
+   approvals, stakeholders, or controls not supported by the
+   feedback or existing requirements.
+7. Return the complete revised Source Requirements section.
+
+A new rule within an existing aggregate requirement does not
+require a new requirement ID.
+
+# CONSISTENCY
+
+Instructions must explain how to use Source Requirements;
+they must not contain independent business rules.
+
+When a requested business change is made, ensure it appears
+in Source Requirements, not only in Instructions.
+
+# OUTPUT FORMAT
+
+Return only the modified components:
+
+- instructions: Complete revised instruction content or null.
+- source_requirements: Complete revised section or null.
+- change_summary: Accurate summary of actual modifications.
+
+Source Requirements format:
+
+## Source Requirements
+
+- <requirement_id>: <requirement content>
+
+Preserve valid multiline JSON and existing requirement IDs.
+
+Do not return YAML metadata or the complete SKILL.md.
+Do not use Markdown code fences.
+
+# FINAL CHECK
+
+Before returning, verify:
+- The requested change is actually applied.
+- Existing IDs and unaffected rules are preserved.
+- No unsupported business rules were added.
+- Instructions and Source Requirements are consistent.
+- The output matches SkillModificationOutput.
+
+If a safe modification is impossible, preserve existing content
+and explain why in change_summary.
+
+Return only SkillModificationOutput.
+"""
 
 
 SKILL_VALIDATION_INSTRUCTIONS = """

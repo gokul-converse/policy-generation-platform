@@ -1,4 +1,13 @@
-"""Pydantic schemas for skill generation and semantic validation."""
+"""
+Pydantic models for skill generation and semantic validation.
+
+These models define the structured input/output contracts used by:
+    1. Skill Generation Agent
+    2. Skill Validation Agent
+
+The models also enforce basic structural rules before generated
+content is accepted by the application.
+"""
 
 import re
 from typing import Literal
@@ -13,7 +22,17 @@ from pydantic import (
 
 
 class GeneratedSkill(BaseModel):
-    """Represents one skill generated from validated requirements."""
+    """
+    Represents one reusable skill generated from a validated requirement.
+
+    A skill contains:
+        - name: Unique kebab-case identifier.
+        - description: Short explanation of the capability.
+        - instructions: Reusable instructions for downstream agents.
+        - requirement_ids: Source requirement IDs associated with the skill.
+
+    The application currently enforces one requirement ID per skill.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -29,24 +48,35 @@ class GeneratedSkill(BaseModel):
     description: str = Field(
         min_length=1,
         max_length=1024,
-        description="Short description of what the skill does.",
+        description="Short description of the skill's business capability.",
     )
 
     instructions: str = Field(
         min_length=1,
         max_length=30000,
-        description="Reusable, actionable instructions for downstream agents.",
+        description="Reusable and actionable skill instructions.",
     )
 
     requirement_ids: list[str] = Field(
         min_length=1,
-        description="IDs of validated requirements covered by this skill.",
+        description="Validated requirement IDs associated with this skill.",
     )
 
     @field_validator("name")
     @classmethod
     def validate_name(cls, value: str) -> str:
-        """Enforce lowercase kebab-case naming."""
+        """
+        Ensure the skill name follows lowercase kebab-case.
+
+        Valid examples:
+            employee-leave-management
+            remote-work-eligibility
+
+        Invalid examples:
+            EmployeeLeave
+            employee_leave
+            employee--leave
+        """
 
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value):
             raise ValueError(
@@ -59,7 +89,7 @@ class GeneratedSkill(BaseModel):
     @field_validator("description", "instructions")
     @classmethod
     def validate_non_blank_text(cls, value: str) -> str:
-        """Reject empty or whitespace-only text."""
+        """Reject empty or whitespace-only text fields."""
 
         if not value.strip():
             raise ValueError("This field cannot be blank.")
@@ -72,23 +102,32 @@ class GeneratedSkill(BaseModel):
         cls,
         values: list[str],
     ) -> list[str]:
-        """Reject blank or duplicate requirement IDs."""
+        """
+        Normalize requirement IDs and reject duplicates.
 
-        cleaned = [value.strip() for value in values]
+        This validates the IDs within one skill.
+        Cross-skill mapping is checked by the skill generation service.
+        """
 
-        if any(not value for value in cleaned):
+        cleaned_values = [value.strip() for value in values]
+
+        if any(not value for value in cleaned_values):
             raise ValueError("Requirement IDs cannot be blank.")
 
-        if len(cleaned) != len(set(cleaned)):
+        if len(cleaned_values) != len(set(cleaned_values)):
             raise ValueError(
                 "Duplicate requirement IDs are not allowed."
             )
 
-        return cleaned
+        return cleaned_values
 
 
 class GeneratedSkillSet(BaseModel):
-    """Collection of skills generated for one requirement request."""
+    """
+    Represents the complete collection of skills generated for a request.
+
+    This is the structured output contract of the Skill Generation Agent.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -99,7 +138,7 @@ class GeneratedSkillSet(BaseModel):
 
     @model_validator(mode="after")
     def validate_unique_skill_names(self) -> "GeneratedSkillSet":
-        """Prevent duplicate skill names within one generated set."""
+        """Ensure that skill names are unique within the generated set."""
 
         names = [
             skill.name.casefold()
@@ -120,7 +159,16 @@ class GeneratedSkillSet(BaseModel):
 
 
 class SkillValidationFinding(BaseModel):
-    """Represents one semantic issue identified in a generated skill."""
+    """
+    Represents one issue found during semantic skill validation.
+
+    Each finding must identify:
+        - The related source requirement.
+        - The type of issue.
+        - A description of the issue.
+        - Evidence supporting the finding.
+        - An optional correction suggestion.
+    """
 
     model_config = ConfigDict(
         extra="forbid",
@@ -166,7 +214,22 @@ class SkillValidationFinding(BaseModel):
 
 
 class SkillValidationResult(BaseModel):
-    """Structured result returned by the Skill Validation Agent."""
+    """
+    Structured output returned by the Skill Validation Agent.
+
+    Supported statuses:
+
+        PASS:
+            No semantic issues were found.
+
+        FAIL:
+            Generated skills contain unsupported, altered, missing,
+            conflicting, or non-compliant content.
+
+        NEEDS_CLARIFICATION:
+            The authoritative requirements do not provide enough
+            information to determine correctness.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -185,7 +248,15 @@ class SkillValidationResult(BaseModel):
 
     @model_validator(mode="after")
     def validate_result_consistency(self) -> "SkillValidationResult":
-        """Ensure PASS cannot contain unresolved validation findings."""
+        """
+        Ensure that the validation status agrees with its findings.
+
+        PASS:
+            Must not contain findings.
+
+        FAIL / NEEDS_CLARIFICATION:
+            Must contain at least one finding.
+        """
 
         if self.overall_status == "PASS" and self.findings:
             raise ValueError(

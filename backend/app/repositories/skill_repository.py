@@ -279,3 +279,115 @@ async def create_next_skill_version(
     await session.flush()
 
     return new_version
+
+
+
+async def create_skill_version_from_content(
+    session: AsyncSession,
+    skill_id: uuid.UUID,
+    base_skill_version_id: uuid.UUID,
+    content: str,
+) -> SkillVersion:
+    """
+    Create a new skill version using modified content.
+
+    The original skill version remains unchanged.
+    Requirement-version lineage is preserved from the selected base version.
+    """
+
+    if not content or not content.strip():
+        raise ValueError("Modified skill content cannot be empty.")
+
+    # 1. Retrieve the exact base skill version.
+    base_version = await session.scalar(
+        select(SkillVersion).where(
+            SkillVersion.id == base_skill_version_id,
+            SkillVersion.skill_id == skill_id,
+        )
+    )
+
+    if base_version is None:
+        raise ValueError(
+            "The selected base skill version does not exist "
+            "for the supplied skill."
+        )
+
+    # 2. Find the latest version number for this skill.
+    latest_version = await session.scalar(
+        select(func.max(SkillVersion.version)).where(
+            SkillVersion.skill_id == skill_id
+        )
+    )
+
+    next_version_number = (latest_version or 0) + 1
+
+    # 3. Create a new version without modifying the original.
+    new_version = SkillVersion(
+        skill_id=skill_id,
+        version=next_version_number,
+        content=content,
+        status="draft",
+        source_requirement_version_id=(
+            base_version.source_requirement_version_id
+        ),
+    )
+
+    session.add(new_version)
+
+    # 4. Persist the new row within the current transaction.
+    await session.flush()
+
+    logger.info(
+        "Created skill version. Skill ID=%s, "
+        "Base version ID=%s, New version ID=%s, Version=%s",
+        skill_id,
+        base_skill_version_id,
+        new_version.id,
+        new_version.version,
+    )
+
+    return new_version
+
+
+async def activate_skill_version(
+    session: AsyncSession,
+    skill_id: uuid.UUID,
+    skill_version_id: uuid.UUID,
+) -> SkillVersion | None:
+    """Activate a skill version and supersede the previously active version."""
+
+    result = await session.execute(
+        select(Skill)
+        .options(selectinload(Skill.versions))
+        .where(Skill.id == skill_id)
+    )
+
+    skill = result.scalar_one_or_none()
+
+    if skill is None:
+        return None
+
+    target_version = next(
+        (
+            item
+            for item in skill.versions
+            if item.id == skill_version_id
+        ),
+        None,
+    )
+
+    if target_version is None:
+        return None
+
+    for version_record in skill.versions:
+        if (
+            version_record.id != target_version.id
+            and version_record.status == "active"
+        ):
+            version_record.status = "superseded"
+
+    target_version.status = "active"
+
+    await session.flush()
+
+    return target_version
