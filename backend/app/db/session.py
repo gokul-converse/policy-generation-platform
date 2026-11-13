@@ -51,14 +51,23 @@ engine = create_async_engine(
 )
 
 
+# @event.listens_for(engine.sync_engine, "connect")
+# def enable_foreign_keys(dbapi_connection, connection_record):
+#     """Enable SQLite foreign-key enforcement on each connection."""
+#     cursor = dbapi_connection.cursor()
+#     try:
+#         cursor.execute("PRAGMA foreign_keys=ON")
+#     finally:
+#         cursor.close()
+
 @event.listens_for(engine.sync_engine, "connect")
 def enable_foreign_keys(dbapi_connection, connection_record):
-    """Enable SQLite foreign-key enforcement on each connection."""
-    cursor = dbapi_connection.cursor()
-    try:
-        cursor.execute("PRAGMA foreign_keys=ON")
-    finally:
-        cursor.close()
+    if engine.dialect.name == "sqlite":
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
 
 
 class Base(DeclarativeBase):

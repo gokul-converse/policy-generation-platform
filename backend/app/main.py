@@ -12,7 +12,7 @@ from app.api.skills import router as skills_router
 from app.api.ui_generation import ui_generation_router
 from app.api.websocket import router as requirement_websocket_router
 from app.common.logger import setup_logging
-from app.db.session import dispose_db_engine, initialize_fts
+from app.db.session import dispose_db_engine,  engine, initialize_fts
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -20,14 +20,24 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-    """Initialize database search support and clean up on shutdown."""
+    """Initialize database-specific search support and clean up."""
+
     try:
-        await initialize_fts()
-        logger.info("FTS5 initialization completed.")
+        if engine.dialect.name == "sqlite":
+            await initialize_fts()
+            logger.info("SQLite FTS5 initialization completed.")
+
+        elif engine.dialect.name == "postgresql":
+            logger.info(
+                "PostgreSQL selected. SQLite FTS5 initialization skipped."
+            )
+
         yield
+
     except Exception:
         logger.exception("Application startup or runtime lifecycle failed.")
         raise
+
     finally:
         await dispose_db_engine()
         logger.info("Database engine disposed.")
