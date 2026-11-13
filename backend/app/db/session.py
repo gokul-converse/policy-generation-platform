@@ -1,6 +1,6 @@
-
 """Asynchronous SQLite database configuration and FTS5 initialization."""
-
+import os
+from dotenv import load_dotenv
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
@@ -13,12 +13,37 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
+# BACKEND_DIR = Path(__file__).resolve().parents[2]
+# DATA_DIR = BACKEND_DIR / "data"
+# DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+# DATABASE_PATH = DATA_DIR / "enterprise_policy.db"
+# DATABASE_URL = f"sqlite+aiosqlite:///{DATABASE_PATH.as_posix()}"
+
+# engine = create_async_engine(
+#     DATABASE_URL,
+#     echo=False,
+# )
+
+
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BACKEND_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-DATABASE_PATH = DATA_DIR / "enterprise_policy.db"
-DATABASE_URL = f"sqlite+aiosqlite:///{DATABASE_PATH.as_posix()}"
+# Preserve the existing SQLite configuration
+# SQLITE_DATABASE_PATH = DATA_DIR / "enterprise_policy.db"
+# SQLITE_DATABASE_URL = (
+#     f"sqlite+aiosqlite:///{SQLITE_DATABASE_PATH.as_posix()}"
+# )
+
+# Load PostgreSQL credentials from .env
+load_dotenv(BACKEND_DIR / ".env")
+
+POSTGRES_DATABASE_URL = os.getenv("DATABASE_URL")
+
+# PostgreSQL is not activated until its configuration is verified.
+# Keep SQLite as the current active database for now.
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 engine = create_async_engine(
     DATABASE_URL,
@@ -26,14 +51,23 @@ engine = create_async_engine(
 )
 
 
+# @event.listens_for(engine.sync_engine, "connect")
+# def enable_foreign_keys(dbapi_connection, connection_record):
+#     """Enable SQLite foreign-key enforcement on each connection."""
+#     cursor = dbapi_connection.cursor()
+#     try:
+#         cursor.execute("PRAGMA foreign_keys=ON")
+#     finally:
+#         cursor.close()
+
 @event.listens_for(engine.sync_engine, "connect")
 def enable_foreign_keys(dbapi_connection, connection_record):
-    """Enable SQLite foreign-key enforcement on each connection."""
-    cursor = dbapi_connection.cursor()
-    try:
-        cursor.execute("PRAGMA foreign_keys=ON")
-    finally:
-        cursor.close()
+    if engine.dialect.name == "sqlite":
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
 
 
 class Base(DeclarativeBase):

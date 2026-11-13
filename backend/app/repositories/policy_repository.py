@@ -2,13 +2,16 @@
 
 import json
 import uuid
-from typing import Any
 
-from app.models.policy_api import PolicySectionModel, PolicyValidationReport
-from app.models.policy_db import Policy, PolicyVersion
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+from app.models.policy_api import (
+    PolicySectionModel,
+    PolicyValidationReport,
+)
+from app.models.policy_db import Policy, PolicyVersion
 
 
 async def create_policy(
@@ -16,92 +19,114 @@ async def create_policy(
     title: str,
     domain: str,
     sections: list[PolicySectionModel],
+    content_text: str,
     description: str | None = None,
     applied_skill_ids: list[str] | None = None,
+    applied_skill_version_ids: list[str] | None = None,
     validation_status: str = "pending",
     validation_report: PolicyValidationReport | None = None,
     source_requirement_version_id: str | None = None,
-    change_summary: str | None = "Initial policy draft generated from validated requirements.",
+    change_summary: str | None = (
+        "Initial policy draft generated from validated requirements."
+    ),
 ) -> Policy:
-    """Create a new policy and its version 1 draft record."""
+    """Create a policy and its first version in the current transaction."""
 
-    policy_id = uuid.uuid4()
     policy = Policy(
-        id=policy_id,
+        id=uuid.uuid4(),
         title=title,
         description=description,
         domain=domain,
+        status="draft",
     )
-
-    sections_json = json.dumps([s.model_dump() for s in sections], ensure_ascii=False)
-    report_json = (
-        validation_report.model_dump_json()
-        if validation_report
-        else "{}"
-    )
-    skills_json = json.dumps(applied_skill_ids or [], ensure_ascii=False)
 
     version_record = PolicyVersion(
-        policy_id=policy_id,
+        policy_id=policy.id,
         version=1,
         status="draft",
-        content_json=sections_json,
+        content_json=json.dumps(
+            [section.model_dump() for section in sections],
+            ensure_ascii=False,
+        ),
+        content_text=content_text,
         validation_status=validation_status,
-        validation_report_json=report_json,
+        validation_report_json=(
+            validation_report.model_dump_json()
+            if validation_report
+            else "{}"
+        ),
         source_requirement_version_id=source_requirement_version_id,
-        applied_skill_ids_json=skills_json,
+        applied_skill_ids_json=json.dumps(
+            applied_skill_ids or [],
+            ensure_ascii=False,
+        ),
+        applied_skill_version_ids_json=json.dumps(
+            applied_skill_version_ids or [],
+            ensure_ascii=False,
+        ),
         change_summary=change_summary,
     )
 
     policy.versions.append(version_record)
-    session.add(policy)
-    await session.commit()
 
-    return await get_policy_by_id(session, policy_id)  # type: ignore
+    session.add(policy)
+    await session.flush()
+
+    return policy
 
 
 async def create_policy_version(
     session: AsyncSession,
     policy_id: uuid.UUID,
     sections: list[PolicySectionModel],
+    content_text: str,
     change_summary: str,
     validation_status: str = "pending",
     validation_report: PolicyValidationReport | None = None,
     source_requirement_version_id: str | None = None,
     applied_skill_ids: list[str] | None = None,
+    applied_skill_version_ids: list[str] | None = None,
 ) -> PolicyVersion:
-    """Create a new version record for an existing policy."""
+    """Create a new policy version in the current transaction."""
 
-    # Find highest existing version
-    res = await session.execute(
-        select(func.max(PolicyVersion.version)).where(PolicyVersion.policy_id == policy_id)
+    result = await session.execute(
+        select(func.max(PolicyVersion.version)).where(
+            PolicyVersion.policy_id == policy_id
+        )
     )
-    highest_v = res.scalar_one_or_none() or 0
-    new_version_num = highest_v + 1
 
-    sections_json = json.dumps([s.model_dump() for s in sections], ensure_ascii=False)
-    report_json = (
-        validation_report.model_dump_json()
-        if validation_report
-        else "{}"
-    )
-    skills_json = json.dumps(applied_skill_ids or [], ensure_ascii=False)
+    highest_version = result.scalar_one_or_none() or 0
+    next_version = highest_version + 1
 
     new_version = PolicyVersion(
         policy_id=policy_id,
-        version=new_version_num,
+        version=next_version,
         status="draft",
-        content_json=sections_json,
+        content_json=json.dumps(
+            [section.model_dump() for section in sections],
+            ensure_ascii=False,
+        ),
+        content_text=content_text,
         validation_status=validation_status,
-        validation_report_json=report_json,
+        validation_report_json=(
+            validation_report.model_dump_json()
+            if validation_report
+            else "{}"
+        ),
         source_requirement_version_id=source_requirement_version_id,
-        applied_skill_ids_json=skills_json,
+        applied_skill_ids_json=json.dumps(
+            applied_skill_ids or [],
+            ensure_ascii=False,
+        ),
+        applied_skill_version_ids_json=json.dumps(
+            applied_skill_version_ids or [],
+            ensure_ascii=False,
+        ),
         change_summary=change_summary,
     )
 
     session.add(new_version)
-    await session.commit()
-    await session.refresh(new_version)
+    await session.flush()
 
     return new_version
 
@@ -110,14 +135,16 @@ async def get_policy_by_id(
     session: AsyncSession,
     policy_id: uuid.UUID,
 ) -> Policy | None:
-    """Fetch policy by ID with all version records."""
-    res = await session.execute(
+    """Fetch a policy with its complete version history."""
+
+    result = await session.execute(
         select(Policy)
         .options(selectinload(Policy.versions))
         .where(Policy.id == policy_id)
         .execution_options(populate_existing=True)
     )
-    return res.scalars().first()
+
+    return result.scalars().first()
 
 
 async def list_policies(
@@ -126,17 +153,14 @@ async def list_policies(
     limit: int | None = None,
     offset: int = 0,
 ) -> list[Policy]:
-    """List policies with versions ordered by created date.
+    """List policies with their complete version history."""
 
-    limit/offset apply to policies, not to their versions — every
-    returned policy still carries its full version history.
-    """
     query = (
         select(Policy)
         .options(selectinload(Policy.versions))
         .order_by(Policy.created_at.desc())
-        .execution_options(populate_existing=True)
         .offset(offset)
+        .execution_options(populate_existing=True)
     )
 
     if domain is not None:
@@ -145,8 +169,9 @@ async def list_policies(
     if limit is not None:
         query = query.limit(limit)
 
-    res = await session.execute(query)
-    return list(res.scalars().all())
+    result = await session.execute(query)
+
+    return list(result.scalars().all())
 
 
 async def get_policy_version(
@@ -154,14 +179,16 @@ async def get_policy_version(
     policy_id: uuid.UUID,
     version: int,
 ) -> PolicyVersion | None:
-    """Fetch a specific version record for a policy."""
-    res = await session.execute(
+    """Fetch a specific policy version."""
+
+    result = await session.execute(
         select(PolicyVersion).where(
             PolicyVersion.policy_id == policy_id,
             PolicyVersion.version == version,
         )
     )
-    return res.scalars().first()
+
+    return result.scalars().first()
 
 
 async def update_policy_version_status(
@@ -170,12 +197,61 @@ async def update_policy_version_status(
     version: int,
     new_status: str,
 ) -> PolicyVersion | None:
-    """Update approval or review status of a policy version."""
-    v = await get_policy_version(session, policy_id, version)
-    if not v:
+    """Update a version and maintain the policy approval lifecycle."""
+
+    policy = await get_policy_by_id(session, policy_id)
+
+    if policy is None:
         return None
 
-    v.status = new_status
-    await session.commit()
-    await session.refresh(v)
-    return v
+    target_version = next(
+        (
+            item
+            for item in policy.versions
+            if item.version == version
+        ),
+        None,
+    )
+
+    if target_version is None:
+        return None
+
+    if new_status == "active":
+        # Supersede any previously active version.
+        for version_record in policy.versions:
+            if (
+                version_record.id != target_version.id
+                and version_record.status == "active"
+            ):
+                version_record.status = "superseded"
+
+        # Activate the selected version.
+        target_version.status = "active"
+
+        # Update the overall policy lifecycle.
+        policy.status = "active"
+
+    else:
+        target_version.status = new_status
+
+    await session.flush()
+
+    return target_version
+
+async def update_policy_status(
+    session: AsyncSession,
+    policy_id: uuid.UUID,
+    new_status: str,
+) -> Policy | None:
+    """Update the overall policy lifecycle status."""
+
+    policy = await get_policy_by_id(session, policy_id)
+
+    if policy is None:
+        return None
+
+    policy.status = new_status
+
+    await session.flush()
+
+    return policy

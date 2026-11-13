@@ -21,40 +21,54 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/policies", tags=["policies"])
 
 
+
 @router.post(
     "/generate",
     response_model=PolicyResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Generate enterprise policy draft",
     description=(
-        "Generates a policy from one specific confirmed requirement. "
-        "Provide both session_id and requirement_id. The backend loads "
-        "the requirement from the database, applies applicable skills, "
-        "validates the policy draft, and saves its initial version."
+        "Generates an enterprise policy using an existing generated skill. "
+        "The service loads the latest saved skill version, generates the "
+        "complete policy, validates the generated content, and saves the "
+        "initial policy version."
     ),
 )
 async def generate_policy_endpoint(
     request: PolicyGenerationRequest,
     session: AsyncSession = Depends(get_db),
 ) -> PolicyResponse:
-    """Generate and persist a policy from a selected requirement."""
+    """Generate and persist a policy using an existing generated skill."""
 
     try:
         return await policy_service.generate_and_save_policy(
             session=session,
             request=request,
         )
+
+    except policy_service.PolicyGenerationRejected as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "message": str(exc),
+                "comparison": exc.comparison,
+            },
+        ) from exc
+
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+
     except Exception:
         logger.exception("Policy generation failed.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Policy generation failed due to an internal server error.",
         ) from None
+
+
 
 @router.get(
     "",
@@ -134,11 +148,12 @@ async def get_policy_endpoint(
 @router.post(
     "/{policy_id}/modify",
     response_model=PolicyResponse,
-    summary="Modify policy",
+    summary="Modify enterprise policy using overall feedback",
     description=(
-        "Applies modification instructions to a policy, validates the "
-        "result against authoritative requirements, and creates a new "
-        "policy version only when validation passes."
+        "Accepts overall feedback for an existing policy. The service "
+        "analyzes whether the associated skill requires modification, "
+        "optionally creates a new skill version, regenerates the complete "
+        "policy, validates the result, and saves a new policy version."
     ),
 )
 async def modify_policy_endpoint(
@@ -146,28 +161,24 @@ async def modify_policy_endpoint(
     request: PolicyModificationRequest,
     session: AsyncSession = Depends(get_db),
 ) -> PolicyResponse:
-    """Revise a policy section and return validation details on rejection."""
+    """Modify and regenerate the complete policy using overall feedback."""
 
     try:
-        return await policy_service.modify_policy_section(
+        return await policy_service.modify_policy(
             session=session,
             policy_id=policy_id,
             request=request,
         )
 
     except policy_service.PolicyModificationRejected as exc:
-        # Return the validation comparison so the frontend can explain
-        # why the modification was rejected.
         comparison = getattr(exc, "comparison", None)
-
-        detail = {
-            "message": str(exc),
-            "comparison": comparison,
-        }
 
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=detail,
+            detail={
+                "message": str(exc),
+                "comparison": comparison,
+            },
         ) from exc
 
     except ValueError as exc:
@@ -183,9 +194,10 @@ async def modify_policy_endpoint(
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Policy modification failed due to an internal server error.",
+            detail=(
+                "Policy modification failed due to an internal server error."
+            ),
         ) from None
-
 
 
 @router.get(
@@ -293,40 +305,50 @@ async def approve_policy_version_endpoint(
         ) from None
 
 
+
 @router.get(
     "/{policy_id}/text",
     response_class=PlainTextResponse,
     summary="Get policy document text",
-    description="Returns the formatted text for a policy version.",
+    description="Returns the stored text for a specific policy version.",
 )
 async def get_policy_text_endpoint(
     policy_id: UUID,
     version: int | None = Query(default=None, ge=1),
     session: AsyncSession = Depends(get_db),
 ) -> str:
-    """Return the requested policy's formatted text."""
+    """Return the requested policy version's stored text."""
 
-    policy = await policy_service.get_policy_detail(
-        session=session,
-        policy_id=policy_id,
-        version=version,
-    )
-
-    if not policy:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Policy or requested version not found.",
+    try:
+        content = await policy_service.get_policy_text_content(
+            session=session,
+            policy_id=policy_id,
+            version=version,
         )
 
-    content = policy_service.get_policy_text_content(
-        policy_id=policy_id,
-        version=version or policy.version,
-    )
+        if content is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Policy document text not found.",
+            )
 
-    if content is None:
+        return content
+
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Policy document text not found.",
-        )
+            detail=str(exc),
+        ) from exc
 
-    return content
+    except HTTPException:
+        raise
+
+    except Exception:
+        logger.exception(
+            "Failed to retrieve text for policy %s.",
+            policy_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to retrieve policy document text.",
+        ) from None

@@ -1,18 +1,16 @@
 """Database operations for skills and their versions."""
 
 import logging
-import shutil
 import uuid
-from pathlib import Path
 
-from app.config.settings import settings
-from app.models.skill_db import Skill, SkillVersion
-from app.models.skills import GeneratedSkillSet
-from app.services.skill_file_service import write_skill_file
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
+from app.models.skill_db import Skill, SkillVersion
+from app.models.skills import GeneratedSkillSet
+from app.services.skill_file_service import build_skill_markdown
 
 logger = logging.getLogger(__name__)
 
@@ -22,19 +20,14 @@ async def save_skill_set(
     skill_set: GeneratedSkillSet,
     source_requirement_version_id: str | None = None,
 ) -> list[Skill]:
-    """Save generated skills as initial draft versions.
+    """Save generated skills and their initial draft versions."""
 
-    Files are written before the database transaction is committed.
-    If database persistence fails, the transaction is rolled back and
-    files created by this operation are removed on a best-effort basis.
-
-    Filesystem writes and database commits cannot form one atomic
-    transaction, so cleanup failures must be logged and handled operationally.
-    """
     generated_skills = skill_set.skills
 
     if not generated_skills:
-        return []
+        raise ValueError(
+            "Cannot save an empty generated skill set."
+        )
 
     names = [skill.name.strip() for skill in generated_skills]
     normalized_names = [name.casefold() for name in names]
@@ -47,19 +40,13 @@ async def save_skill_set(
             "Skill names must be unique within a generated set."
         )
 
-    skills_root = settings.generated_skills_path.resolve()
-    created_files: list[Path] = []
-    skill_ids: list[uuid.UUID] = []
-
     try:
-        # Detect existing names case-insensitively.
-        # The database uniqueness constraint remains necessary to protect
-        # against concurrent requests.
         result = await session.execute(
             select(Skill.name).where(
                 func.lower(Skill.name).in_(normalized_names)
             )
         )
+
         existing_names = {
             name.casefold()
             for name in result.scalars().all()
@@ -74,31 +61,13 @@ async def save_skill_set(
         if conflicts:
             raise ValueError(f"Skills already exist: {conflicts}")
 
-        # Write each initial skill file and stage its database records.
+        skill_ids: list[uuid.UUID] = []
+
         for generated_skill in generated_skills:
             skill_id = uuid.uuid4()
             skill_ids.append(skill_id)
 
-            relative_path = write_skill_file(
-                generated_skill=generated_skill,
-                skill_id=str(skill_id),
-                version=1,
-            )
-
-            file_path = (skills_root / relative_path).resolve()
-
-            try:
-                file_path.relative_to(skills_root)
-            except ValueError as exc:
-                raise ValueError(
-                    "Skill file path escapes the skills directory."
-                ) from exc
-
-            # Track only files that actually exist. If the writer creates
-            # a file and then raises before returning, that partial-write
-            # cleanup must be handled by write_skill_file itself.
-            if file_path.is_file():
-                created_files.append(file_path)
+            content = build_skill_markdown(generated_skill)
 
             skill = Skill(
                 id=skill_id,
@@ -109,7 +78,7 @@ async def save_skill_set(
             skill.versions.append(
                 SkillVersion(
                     version=1,
-                    file_path=relative_path,
+                    content=content,
                     status="draft",
                     source_requirement_version_id=(
                         source_requirement_version_id
@@ -143,58 +112,45 @@ async def save_skill_set(
                 "One or more saved skills could not be reloaded."
             )
 
-        # Ensure the returned relationships are ordered explicitly.
         for skill in saved_skills:
             skill.versions.sort(key=lambda item: item.version)
 
+            if not skill.versions:
+                raise RuntimeError(
+                    f"Saved skill '{skill.name}' has no version records."
+                )
+
         await session.commit()
 
-        logger.info("Saved %d generated skill(s).", len(saved_skills))
+        logger.info(
+            "Saved %d generated skill(s) in the database.",
+            len(saved_skills),
+        )
+
         return saved_skills
 
     except IntegrityError as exc:
         await session.rollback()
-        _cleanup_created_files(created_files, skills_root)
 
         logger.warning(
             "Could not save generated skills because of a database "
             "integrity conflict."
         )
+
         raise ValueError(
             "One or more skills conflict with existing database records."
         ) from exc
 
     except Exception:
         await session.rollback()
-        _cleanup_created_files(created_files, skills_root)
         raise
-
-
-def _cleanup_created_files(
-    created_files: list[Path],
-    skills_root: Path,
-) -> None:
-    """Remove files created by a failed database operation."""
-    for file_path in created_files:
-        try:
-            resolved_path = file_path.resolve()
-            resolved_path.relative_to(skills_root)
-
-            if resolved_path.is_file():
-                resolved_path.unlink()
-
-        except (OSError, ValueError):
-            logger.exception(
-                "Could not clean up generated skill file: %s",
-                file_path,
-            )
-
 
 async def get_skill_by_id(
     session: AsyncSession,
     skill_id: uuid.UUID,
 ) -> Skill | None:
     """Fetch a skill by ID, including its version records."""
+
     result = await session.execute(
         select(Skill)
         .options(selectinload(Skill.versions))
@@ -208,11 +164,12 @@ async def get_skill_by_name(
     session: AsyncSession,
     name: str,
 ) -> Skill | None:
-    """Fetch a skill by exact name, including its versions."""
+    """Fetch a skill by name, ignoring capitalization."""
+
     result = await session.execute(
         select(Skill)
         .options(selectinload(Skill.versions))
-        .where(Skill.name == name)
+        .where(func.lower(Skill.name) == name.strip().lower())
     )
 
     return result.scalars().first()
@@ -223,11 +180,8 @@ async def list_skills(
     limit: int | None = None,
     offset: int = 0,
 ) -> list[Skill]:
-    """List skills with versions, newest skills first.
+    """List skills with their complete version history."""
 
-    limit/offset apply to skills, not to their versions — every returned
-    skill still carries its full version history.
-    """
     query = (
         select(Skill)
         .options(selectinload(Skill.versions))
@@ -253,6 +207,7 @@ async def get_skill_versions(
     skill_id: uuid.UUID,
 ) -> list[SkillVersion]:
     """Retrieve skill versions in ascending version order."""
+
     result = await session.execute(
         select(SkillVersion)
         .where(SkillVersion.skill_id == skill_id)
@@ -268,6 +223,7 @@ async def get_skill_version(
     version: int,
 ) -> SkillVersion | None:
     """Retrieve one specific version of a skill."""
+
     if version < 1:
         return None
 
@@ -285,13 +241,14 @@ async def create_next_skill_version(
     session: AsyncSession,
     skill_id: uuid.UUID,
 ) -> SkillVersion:
-    """Create a new draft version while preserving prior versions."""
+    """Create a new draft version using the previous version's content."""
 
     result = await session.execute(
         select(Skill)
         .options(selectinload(Skill.versions))
         .where(Skill.id == skill_id)
     )
+
     skill = result.scalar_one_or_none()
 
     if skill is None or not skill.versions:
@@ -300,59 +257,137 @@ async def create_next_skill_version(
         )
 
     latest = max(skill.versions, key=lambda item: item.version)
+
+    if not latest.content:
+        raise ValueError(
+            "The latest skill version has no stored content."
+        )
+
     next_version = latest.version + 1
 
-    skills_root = settings.generated_skills_path.resolve()
-    source = (skills_root / latest.file_path).resolve()
-
-    source.relative_to(skills_root)
-
-    if not source.is_file():
-        raise ValueError(
-            f"The existing skill file is missing: {latest.file_path}"
-        )
-
-    relative_path = (
-        Path(str(skill.id)) / f"v{next_version}" / "SKILL.md"
+    new_version = SkillVersion(
+        skill_id=skill.id,
+        version=next_version,
+        content=latest.content,
+        status="draft",
+        source_requirement_version_id=(
+            latest.source_requirement_version_id
+        ),
     )
-    destination = (skills_root / relative_path).resolve()
-    destination.relative_to(skills_root)
 
-    destination.parent.mkdir(parents=True, exist_ok=True)
+    session.add(new_version)
+    await session.flush()
 
-    # Exclusive creation prevents overwriting an existing version.
-    created_file = False
+    return new_version
 
-    try:
-        with source.open("rb") as source_file:
-            with destination.open("xb") as destination_file:
-                created_file = True
-                shutil.copyfileobj(source_file, destination_file)
 
-        new_version = SkillVersion(
-            skill_id=skill.id,
-            version=next_version,
-            file_path=relative_path.as_posix(),
-            status="draft",
-            source_requirement_version_id=(
-                latest.source_requirement_version_id
-            ),
+
+async def create_skill_version_from_content(
+    session: AsyncSession,
+    skill_id: uuid.UUID,
+    base_skill_version_id: uuid.UUID,
+    content: str,
+) -> SkillVersion:
+    """
+    Create a new skill version using modified content.
+
+    The original skill version remains unchanged.
+    Requirement-version lineage is preserved from the selected base version.
+    """
+
+    if not content or not content.strip():
+        raise ValueError("Modified skill content cannot be empty.")
+
+    # 1. Retrieve the exact base skill version.
+    base_version = await session.scalar(
+        select(SkillVersion).where(
+            SkillVersion.id == base_skill_version_id,
+            SkillVersion.skill_id == skill_id,
+        )
+    )
+
+    if base_version is None:
+        raise ValueError(
+            "The selected base skill version does not exist "
+            "for the supplied skill."
         )
 
-        session.add(new_version)
-        await session.flush()
+    # 2. Find the latest version number for this skill.
+    latest_version = await session.scalar(
+        select(func.max(SkillVersion.version)).where(
+            SkillVersion.skill_id == skill_id
+        )
+    )
 
-        return new_version
+    next_version_number = (latest_version or 0) + 1
 
-    except Exception:
-        if created_file:
-            try:
-                destination.resolve().relative_to(skills_root)
-                if destination.is_file():
-                    destination.unlink()
-            except (OSError, ValueError):
-                logger.exception(
-                    "Could not clean up failed skill version file: %s",
-                    destination,
-                )
-        raise
+    # 3. Create a new version without modifying the original.
+    new_version = SkillVersion(
+        skill_id=skill_id,
+        version=next_version_number,
+        content=content,
+        status="draft",
+        source_requirement_version_id=(
+            base_version.source_requirement_version_id
+        ),
+    )
+
+    session.add(new_version)
+
+    # 4. Persist the new row within the current transaction.
+    await session.flush()
+
+    logger.info(
+        "Created skill version. Skill ID=%s, "
+        "Base version ID=%s, New version ID=%s, Version=%s",
+        skill_id,
+        base_skill_version_id,
+        new_version.id,
+        new_version.version,
+    )
+
+    return new_version
+
+
+async def activate_skill_version(
+    session: AsyncSession,
+    skill_id: uuid.UUID,
+    skill_version_id: uuid.UUID,
+) -> SkillVersion | None:
+    """Activate a skill version and supersede the previously active version."""
+
+    result = await session.execute(
+        select(Skill)
+        .options(selectinload(Skill.versions))
+        .where(Skill.id == skill_id)
+    )
+
+    skill = result.scalar_one_or_none()
+
+    if skill is None:
+        return None
+
+    target_version = next(
+        (
+            item
+            for item in skill.versions
+            if item.id == skill_version_id
+        ),
+        None,
+    )
+
+    if target_version is None:
+        return None
+
+    for version_record in skill.versions:
+        if (
+            version_record.id != target_version.id
+            and version_record.status == "active"
+        ):
+            version_record.status = "superseded"
+
+    target_version.status = "active"
+
+    await session.flush()
+
+    return target_version

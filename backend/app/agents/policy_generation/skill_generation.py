@@ -1,84 +1,116 @@
-"""Generate reusable draft skills from validated requirements."""
+"""
+Skill generation orchestration.
+
+This module coordinates the complete skill-generation workflow.
+
+Responsibilities:
+    1. Normalize validated requirement input.
+    2. Enforce one-to-one requirement-to-skill mapping.
+    3. Generate structured skills using the Skill Generator Agent.
+    4. Reconstruct Source Requirements from authoritative input.
+    5. Perform deterministic structural validation.
+    6. Perform independent semantic validation.
+    7. Retry generation when validation fails.
+
+This module does not:
+    - Modify source requirements.
+    - Persist Skill or SkillVersion records.
+    - Approve or activate skills.
+    - Change business rules.
+"""
 
 import json
 import re
-from pathlib import Path
 from typing import Any
 
-from agent_framework import Agent, SkillsProvider
+from agent_framework import Agent
+from app.agents.policy_generation.skill_validation import (
+    validate_generated_skills,
+)
 from app.clients.foundry_client import get_foundry_client
 from app.common.logger import get_logger
-from app.config.settings import settings
+from app.context.skill_provider import create_skill_generation_provider
 from app.models.skills import GeneratedSkillSet
 from app.prompts.skills import SKILL_GENERATOR_INSTRUCTIONS
-from pydantic import ValidationError
 
 logger = get_logger(__name__)
 
-REQUIRED_HEADINGS = [
+
+# ============================================================
+# Constants
+# ============================================================
+
+REQUIRED_HEADINGS = (
+    "# ",
     "## Purpose",
     "## Instructions",
     "## Source Requirements",
-]
+)
 
-PLACEHOLDERS = [
-    "[INSERT",
-    "[TODO",
-    "[PLACEHOLDER",
-    "YOUR_COMPANY_NAME",
-    "YOUR_ORGANIZATION",
-]
+SOURCE_REQUIREMENTS_HEADING = "## Source Requirements"
+
+PLACEHOLDERS = (
+    "[TODO]",
+    "[TBD]",
+    "TODO:",
+    "TBD:",
+    "INSERT HERE",
+    "PLACEHOLDER",
+)
+
+SKILL_NAME_PATTERN = re.compile(
+    r"[a-z0-9]+(?:-[a-z0-9]+)*"
+)
+SKILL_CHARACTER_LIMIT = 64
+MAX_GENERATION_RETRIES = 3
+
+# ============================================================
+# Exceptions
+# ============================================================
 
 
-def create_skill_design_provider() -> SkillsProvider | None:
-    """Load generic skill-design guidance when available.
-
-    Prefer a generic skill-creator skill. The existing company-policy skill
-    remains a compatibility fallback for projects that have not added one.
-    If neither exists, generation can proceed using the system prompt alone.
+class SkillValidationNeedsClarificationError(ValueError):
     """
-    backend_root = Path(settings.BACKEND_ROOT).resolve()
-    skills_root = backend_root / "skills"
+    Raised when source requirements lack information needed
+    to generate a correct skill.
 
-    preferred_names = (
-        "skill-creator",
-        "agent-skill-creator",
-        "company-policy-generator",
-    )
-
-    for skill_name in preferred_names:
-        skill_dir = skills_root / skill_name
-        skill_file = skill_dir / "SKILL.md"
-
-        if not skill_file.is_file():
-            continue
-
-        if skill_name == "company-policy-generator":
-            logger.warning(
-                "Generic skill-creator guidance was not found; "
-                "using company-policy-generator as a compatibility fallback."
-            )
-
-        return SkillsProvider.from_paths(
-            skill_paths=[skill_dir],
-            disable_load_skill_approval=True,
-            disable_read_skill_resource_approval=True,
-        )
-
-    logger.info(
-        "No built-in skill-design provider found; using prompt-only generation."
-    )
-    return None
+    This is different from a normal generation failure:
+    the business requirement itself needs clarification.
+    """
 
 
-# Backward-compatible alias for existing callers.
-create_company_policy_generator_provider = create_skill_design_provider
+# ============================================================
+# 1. Requirement normalization
+# ============================================================
 
 
 def _normalize_requirements(
     validated_requirements: dict[str, Any] | list[Any] | Any,
 ) -> dict[str, Any]:
-    """Normalize supported inputs and retain required requirement fields."""
+    """
+    Normalize supported requirement inputs.
+
+    Supported input formats:
+        - A list of requirement dictionaries.
+        - A dictionary containing a 'requirements' list.
+        - A Pydantic model containing a 'requirements' list.
+
+    Output format:
+        {
+            "requirements": [
+                {
+                    "requirement_id": "REQ-001",
+                    "text": "Original validated requirement text"
+                }
+            ]
+        }
+
+    Only requirement IDs and original text are retained because
+    these are the fields required by the skill-generation workflow.
+
+    Raises:
+        ValueError: If the input structure is invalid.
+    """
 
     if isinstance(validated_requirements, list):
         raw_requirements = validated_requirements
@@ -97,21 +129,28 @@ def _normalize_requirements(
         raw_requirements = dumped.get("requirements")
 
     else:
-        raise ValueError("Unsupported validated_requirements type.")
+        raise ValueError(
+            "Unsupported validated_requirements type."
+        )
 
     if not isinstance(raw_requirements, list) or not raw_requirements:
-        raise ValueError("A non-empty requirements list is required.")
+        raise ValueError(
+            "A non-empty requirements list is required."
+        )
 
-    compact_requirements: list[dict[str, str]] = []
+    normalized: list[dict[str, str]] = []
 
     for item in raw_requirements:
+
         if isinstance(item, dict):
             requirement = item
+
         elif hasattr(item, "model_dump"):
             requirement = item.model_dump()
+
         else:
             raise ValueError(
-                "Each requirement must be a dictionary or model."
+                "Each requirement must be a dictionary or Pydantic model."
             )
 
         requirement_id = requirement.get("requirement_id")
@@ -133,23 +172,40 @@ def _normalize_requirements(
                 f"Requirement {requirement_id!r} needs non-empty text."
             )
 
-        compact_requirements.append(
+        normalized.append(
             {
                 "requirement_id": requirement_id.strip(),
-                "text": requirement_text,
+                "text": requirement_text.strip(),
             }
         )
 
-    return {"requirements": compact_requirements}
+    return {"requirements": normalized}
+
+
+# ============================================================
+# 2. Requirement input validation
+# ============================================================
 
 
 def validate_requirement_input(
     validated_requirements: dict[str, Any],
 ) -> set[str]:
-    """Validate the normalized requirements and collect their IDs."""
+    """
+    Validate normalized requirements and return their unique IDs.
+
+    Checks:
+        - The input contains a non-empty requirements list.
+        - Each requirement has an ID and text.
+        - Requirement IDs are unique.
+
+    Returns:
+        Set of known requirement IDs.
+    """
 
     if not isinstance(validated_requirements, dict):
-        raise ValueError("Requirements input must be a dictionary.")
+        raise ValueError(
+            "Requirements input must be a dictionary."
+        )
 
     requirements = validated_requirements.get("requirements")
 
@@ -161,8 +217,11 @@ def validate_requirement_input(
     known_ids: set[str] = set()
 
     for requirement in requirements:
+
         if not isinstance(requirement, dict):
-            raise ValueError("Each requirement must be a dictionary.")
+            raise ValueError(
+                "Each requirement must be a dictionary."
+            )
 
         requirement_id = requirement.get("requirement_id")
         requirement_text = requirement.get("text")
@@ -183,6 +242,8 @@ def validate_requirement_input(
                 f"Requirement {requirement_id!r} needs non-empty text."
             )
 
+        requirement_id = requirement_id.strip()
+
         if requirement_id in known_ids:
             raise ValueError(
                 f"Duplicate requirement ID: {requirement_id}"
@@ -193,144 +254,9 @@ def validate_requirement_input(
     return known_ids
 
 
-def validate_generated_skill_set(
-    skill_set: GeneratedSkillSet,
-    validated_requirements: dict[str, Any],
-    known_requirement_ids: set[str],
-) -> None:
-    """Validate skill metadata, traceability, and Markdown structure."""
-
-    requirement_text_by_id = {
-        requirement["requirement_id"]: requirement["text"]
-        for requirement in validated_requirements["requirements"]
-    }
-
-    names = [skill.name.casefold() for skill in skill_set.skills]
-
-    if len(names) != len(set(names)):
-        raise ValueError("Generated skill names must be unique.")
-
-    covered_requirement_ids: set[str] = set()
-
-    for skill in skill_set.skills:
-        if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", skill.name):
-            raise ValueError(
-                f"Skill name {skill.name!r} must use lowercase kebab-case."
-            )
-
-        if len(skill.name) > 64:
-            raise ValueError(
-                f"Skill name {skill.name!r} exceeds 64 characters."
-            )
-
-        if not skill.description.strip():
-            raise ValueError(
-                f"Skill {skill.name!r} has an empty description."
-            )
-
-        if not skill.instructions.strip():
-            raise ValueError(
-                f"Skill {skill.name!r} has empty instructions."
-            )
-
-        if not skill.requirement_ids:
-            raise ValueError(
-                f"Skill {skill.name!r} must reference source requirements."
-            )
-
-        if len(skill.requirement_ids) != len(set(skill.requirement_ids)):
-            raise ValueError(
-                f"Skill {skill.name!r} contains duplicate requirement IDs."
-            )
-
-        unknown_ids = set(skill.requirement_ids) - known_requirement_ids
-
-        if unknown_ids:
-            raise ValueError(
-                f"Skill {skill.name!r} contains unknown requirement IDs: "
-                f"{sorted(unknown_ids)}"
-            )
-
-        covered_requirement_ids.update(skill.requirement_ids)
-
-        body = skill.instructions.strip()
-
-        if body.startswith("---"):
-            raise ValueError(
-                f"Skill {skill.name!r} must not contain YAML frontmatter "
-                "inside instructions."
-            )
-
-        upper_body = body.upper()
-
-        for placeholder in PLACEHOLDERS:
-            if placeholder in upper_body:
-                raise ValueError(
-                    f"Skill {skill.name!r} contains placeholder "
-                    f"{placeholder}."
-                )
-
-        lines = body.splitlines()
-
-        # Require a meaningful H1 title as the first non-empty line.
-        first_line = next(
-            (line.strip() for line in lines if line.strip()),
-            "",
-        )
-
-        if not first_line.startswith("# ") or first_line == "#":
-            raise ValueError(
-                f"Skill {skill.name!r} must start with a descriptive H1 title."
-            )
-
-        # Require exactly one occurrence of each mandatory heading,
-        # in the required order.
-        heading_positions: list[int] = []
-
-        for heading in REQUIRED_HEADINGS:
-            matching_positions = [
-                index
-                for index, line in enumerate(lines)
-                if line.strip() == heading
-            ]
-
-            if len(matching_positions) != 1:
-                raise ValueError(
-                    f"Skill {skill.name!r} must contain exactly one "
-                    f"{heading!r} heading."
-                )
-
-            heading_positions.append(matching_positions[0])
-
-        if heading_positions != sorted(heading_positions):
-            raise ValueError(
-                f"Skill {skill.name!r} has mandatory headings "
-                "in the wrong order."
-            )
-
-        # Compare against the complete section, not individual lines:
-        # authoritative requirement text may itself contain line breaks.
-        source_section = body.split("## Source Requirements", maxsplit=1)[1]
-
-        for requirement_id in skill.requirement_ids:
-            original_text = requirement_text_by_id[requirement_id]
-            expected_entry = f"- {requirement_id}: {original_text}"
-
-            if expected_entry not in source_section:
-                raise ValueError(
-                    f"Skill {skill.name!r} must preserve the original "
-                    f"text for requirement {requirement_id!r} in its "
-                    "Source Requirements section."
-                )
-
-    uncovered_ids = known_requirement_ids - covered_requirement_ids
-
-    if uncovered_ids:
-        raise ValueError(
-            "Generated skills do not cover all input requirements: "
-            f"{sorted(uncovered_ids)}"
-        )
-
+# ============================================================
+# 3. Reconstruct authoritative Source Requirements
+# ============================================================
 
 
 def canonicalize_source_requirements(
@@ -338,149 +264,515 @@ def canonicalize_source_requirements(
     validated_requirements: dict[str, Any],
 ) -> None:
     """
-    Rebuild each skill's Source Requirements section from authoritative input.
+    Rebuild each skill's Source Requirements section.
 
-    The LLM creates skill guidance, but Python owns exact source-text copying.
-    This avoids retrying when a model paraphrases source requirement text.
+    The LLM selects the requirement ID associated with a skill.
+    Python reconstructs the original requirement text.
+
+    This prevents the model from accidentally changing or
+    paraphrasing authoritative source requirement wording.
+
+    The existing Instructions content is retained.
     """
+
     requirement_text_by_id = {
-        item["requirement_id"]: item["text"]
-        for item in validated_requirements["requirements"]
+        requirement["requirement_id"]: requirement["text"]
+        for requirement in validated_requirements["requirements"]
     }
 
     for skill in skill_set.skills:
-        # Let the validator report invalid/duplicate/unknown IDs clearly.
-        if (
-            not skill.requirement_ids
-            or len(skill.requirement_ids) != len(set(skill.requirement_ids))
-            or any(rid not in requirement_text_by_id for rid in skill.requirement_ids)
-        ):
-            continue
 
-        original_lines = skill.instructions.splitlines()
-        kept_lines: list[str] = []
-        inside_source_section = False
-
-        # Remove existing Source Requirements section(s), retaining any later
-        # non-source sections so the final validator can assess their order.
-        for line in original_lines:
-            stripped = line.strip()
-
-            if stripped == "## Source Requirements":
-                inside_source_section = True
-                continue
-
-            if inside_source_section:
-                # Source Requirements is a level-2 section. Resume if another
-                # level-2 heading appears after it.
-                if stripped.startswith("## "):
-                    inside_source_section = False
-                    kept_lines.append(line)
-                else:
-                    continue
-            else:
-                kept_lines.append(line)
-
-        while kept_lines and not kept_lines[-1].strip():
-            kept_lines.pop()
-
-        # Keep the authoritative source text intact, including embedded
-        # newlines and trailing whitespace. Only trim the generated content
-        # before the Source Requirements section.
-        base = "\n".join(kept_lines).rstrip()
-        source_entries = "\n".join(
-            f"- {requirement_id}: {requirement_text_by_id[requirement_id]}"
-            for requirement_id in skill.requirement_ids
+        unknown_ids = (
+            set(skill.requirement_ids)
+            - set(requirement_text_by_id)
         )
+
+        if unknown_ids:
+            raise ValueError(
+                f"Skill {skill.name!r} contains unknown requirement IDs: "
+                f"{sorted(unknown_ids)}"
+            )
+
+        # Reconstruct the source section using the original input.
+        source_lines = [
+            f"- {requirement_id}: "
+            f"{requirement_text_by_id[requirement_id]}"
+            for requirement_id in skill.requirement_ids
+        ]
+
+        source_section = (
+            f"{SOURCE_REQUIREMENTS_HEADING}\n\n"
+            + "\n".join(source_lines)
+        )
+
+        body = skill.instructions.strip()
+
+        # Remove any Source Requirements section generated by the LLM.
+        # Python replaces it with the authoritative original text.
+        heading_position = body.find(SOURCE_REQUIREMENTS_HEADING)
+
+        if heading_position >= 0:
+            body = body[:heading_position].rstrip()
 
         skill.instructions = (
-            f"{base}\n\n## Source Requirements\n{source_entries}\n"
+            f"{body}\n\n{source_section}"
         )
 
 
-REPAIR_CHECKLIST = """
-Correct the validation error in the previous output.
+# ============================================================
+# 4. Validate generated skill mapping
+# ============================================================
 
-Mandatory rules:
-1. Each skill must have a descriptive H1 title as its first non-empty line.
-2. Include exactly one of each heading, in this order:
-   ## Purpose
-   ## Instructions
-   ## Source Requirements
-3. Replace every placeholder with complete, requirement-supported content.
-4. Never output [INSERT], [TODO], [PLACEHOLDER], or template instructions.
-5. Preserve valid skill names, descriptions, requirement IDs, and exact
-   source requirement text.
-6. Cover every input requirement. Do not invent policy rules.
-7. Return only output matching the required schema.
 
-Fix the reported error and preserve all content that already passes validation.
-"""
+def _validate_requirement_mapping(
+    skill_set: GeneratedSkillSet,
+    known_requirement_ids: set[str],
+) -> None:
+    """
+    Enforce exactly one skill per requirement ID.
+
+    Each skill must:
+        - Reference exactly one requirement ID.
+        - Reference a known requirement.
+        - Have a unique mapping.
+
+    The complete generated mapping must match the input mapping.
+    """
+
+    if len(skill_set.skills) != len(known_requirement_ids):
+        raise ValueError(
+            "One-to-one requirement mapping failed. "
+            f"Expected {len(known_requirement_ids)} skills, "
+            f"but generated {len(skill_set.skills)}."
+        )
+
+    generated_ids: list[str] = []
+
+    for skill in skill_set.skills:
+
+        if len(skill.requirement_ids) != 1:
+            raise ValueError(
+                f"Skill {skill.name!r} must reference exactly one "
+                f"requirement ID. Found: {skill.requirement_ids}"
+            )
+
+        generated_ids.extend(skill.requirement_ids)
+
+    if len(generated_ids) != len(set(generated_ids)):
+        raise ValueError(
+            "A requirement ID cannot be assigned to multiple skills."
+        )
+
+    generated_requirement_ids = set(generated_ids)
+
+    if generated_requirement_ids != known_requirement_ids:
+
+        missing_ids = (
+            known_requirement_ids - generated_requirement_ids
+        )
+
+        unknown_ids = (
+            generated_requirement_ids - known_requirement_ids
+        )
+
+        raise ValueError(
+            "Generated skills must have an exact one-to-one mapping "
+            "with all input requirement IDs. "
+            f"Missing IDs: {sorted(missing_ids)}. "
+            f"Unknown IDs: {sorted(unknown_ids)}."
+        )
+
+
+# ============================================================
+# 5. Validate individual skill content
+# ============================================================
+
+
+def _validate_skill_content(skill: Any) -> None:
+    """
+    Validate the name, description, and Markdown structure of one skill.
+
+    These checks are deterministic. They do not replace
+    independent semantic validation.
+    """
+
+    if not SKILL_NAME_PATTERN.fullmatch(skill.name):
+        raise ValueError(
+            f"Skill name {skill.name!r} must use lowercase kebab-case."
+        )
+
+    if len(skill.name) > SKILL_CHARACTER_LIMIT:
+        raise ValueError(
+            f"Skill name {skill.name!r} exceeds {SKILL_CHARACTER_LIMIT} characters."
+        )
+
+    if not skill.description or not skill.description.strip():
+        raise ValueError(
+            f"Skill {skill.name!r} has an empty description."
+        )
+
+    body = skill.instructions.strip()
+
+    if not body:
+        raise ValueError(
+            f"Skill {skill.name!r} has empty instructions."
+        )
+
+    if body.startswith("---"):
+        raise ValueError(
+            f"Skill {skill.name!r} must not contain YAML frontmatter "
+            "inside instructions."
+        )
+
+    upper_body = body.upper()
+
+    for placeholder in PLACEHOLDERS:
+
+        if placeholder in upper_body:
+            raise ValueError(
+                f"Skill {skill.name!r} contains placeholder "
+                f"{placeholder}."
+            )
+
+    # Verify all required headings exist in the expected order.
+    heading_positions: list[int] = []
+
+    for heading in REQUIRED_HEADINGS:
+
+        position = body.find(heading)
+
+        if position == -1:
+            raise ValueError(
+                f"Skill {skill.name!r} is missing heading {heading!r}."
+            )
+
+        heading_positions.append(position)
+
+    if heading_positions != sorted(heading_positions):
+        raise ValueError(
+            f"Skill {skill.name!r} has headings in the wrong order."
+        )
+
+
+# ============================================================
+# 6. Validate complete generated skill set
+# ============================================================
+
+
+def validate_generated_skill_set(
+    skill_set: GeneratedSkillSet,
+    validated_requirements: dict[str, Any],
+    known_requirement_ids: set[str],
+) -> None:
+    """
+    Run deterministic validation on the complete generated skill set.
+
+    Validation includes:
+        1. Unique skill names.
+        2. One-to-one requirement mapping.
+        3. Valid skill metadata.
+        4. Required Markdown headings.
+        5. Original source requirement preservation.
+
+    Semantic correctness is checked separately by the
+    Skill Validation Agent.
+    """
+
+    if not skill_set.skills:
+        raise ValueError(
+            "The generated skill set is empty."
+        )
+
+    # Check that every skill name is unique.
+    names = [skill.name for skill in skill_set.skills]
+
+    if len(names) != len(set(names)):
+        raise ValueError(
+            "Generated skill names must be unique."
+        )
+
+    # Check requirement-to-skill mapping.
+    _validate_requirement_mapping(
+        skill_set=skill_set,
+        known_requirement_ids=known_requirement_ids,
+    )
+
+    requirement_text_by_id = {
+        requirement["requirement_id"]: requirement["text"]
+        for requirement in validated_requirements["requirements"]
+    }
+
+    # Validate every individual skill.
+    for skill in skill_set.skills:
+
+        _validate_skill_content(skill)
+
+        # Verify that the original requirement text is present.
+        for requirement_id in skill.requirement_ids:
+
+            original_text = requirement_text_by_id[requirement_id]
+
+            expected_line = (
+                f"- {requirement_id}: {original_text}"
+            )
+
+            if expected_line not in skill.instructions:
+                raise ValueError(
+                    f"Skill {skill.name!r} must preserve the original "
+                    f"text for requirement {requirement_id!r}."
+                )
+
+
+# ============================================================
+# 7. Build generation and repair prompts
+# ============================================================
 
 
 def _build_prompt(
     requirements_json: str,
     validation_error: str | None = None,
-    previous_output_json: str | None = None,
+    previous_skill_set_json: str | None = None,
 ) -> str:
-    """Build a compact generation or repair prompt."""
+    """
+    Build the prompt for either initial generation or repair.
+
+    Initial generation:
+        Generates skills from validated requirements.
+
+    Repair:
+        Corrects a previous output using structural or
+        semantic validation findings.
+
+    The original requirements are included in both cases
+    so they remain the authoritative source.
+    """
 
     if validation_error:
-        previous_output_block = (
-            f"Your previous output was:\n{previous_output_json}\n"
-            if previous_output_json
-            else ""
+
+        previous_output = (
+            previous_skill_set_json
+            or "No previous generated skill output is available."
         )
 
-        return (
-            "Repair the structured skill output. The validation failure "
-            f"was:\n{validation_error}\n"
-            f"{previous_output_block}"
-            f"{REPAIR_CHECKLIST}\n"
-            "Return the complete corrected structured output. Preserve "
-            "all requirement IDs and original requirement text exactly. "
-            "Do not introduce unsupported requirements.\n"
-            f"Requirements:\n{requirements_json}"
+        return f"""
+REPAIR THE PREVIOUSLY GENERATED SKILL SET.
+
+The previous output failed validation.
+
+Review:
+1. The original validated requirements.
+2. The previous generated skills.
+3. The validation findings.
+
+PREVIOUS GENERATED SKILL SET:
+{previous_output}
+
+VALIDATION FINDINGS:
+{validation_error}
+
+REPAIR RULES:
+
+- Correct every identified validation failure.
+- Preserve valid instructions from the previous output.
+- Do not unnecessarily rewrite valid content.
+- Do not introduce new business rules.
+- Do not change authoritative requirement meaning.
+- Preserve requirement IDs.
+- Preserve original requirement wording.
+- Preserve numeric values, dates, units, conditions,
+  exceptions, obligations, and scope.
+
+STRICT MAPPING RULES:
+
+- Generate exactly one skill for each unique requirement ID.
+- Each skill must reference exactly one requirement ID.
+- Do not merge different requirement IDs.
+- Do not create duplicate skills.
+- Do not omit any requirement ID.
+- Do not introduce unknown requirement IDs.
+
+AUTHORITATIVE VALIDATED REQUIREMENTS:
+{requirements_json}
+
+Return the complete corrected skill set using the
+GeneratedSkillSet structured output format.
+"""
+
+    return f"""
+Generate enterprise-ready, reusable operational Agent Skills
+from the supplied validated requirements.
+
+REQUIREMENT MAPPING:
+
+- Generate exactly one skill per unique requirement ID.
+- Each skill must map to exactly one requirement ID.
+- Do not combine multiple requirement IDs into one skill.
+- Do not create multiple skills for the same requirement.
+- Preserve original requirement IDs and meaning.
+
+SKILL QUALITY:
+
+- Define a clear purpose and scope.
+- Provide actionable, reusable instructions.
+- Preserve all supported conditions and constraints.
+- Define responsibility boundaries.
+- Identify prohibited assumptions.
+- Identify unresolved business decisions.
+- Avoid generic and repetitive instructions.
+
+Follow the configured company-policy-generator built-in skill
+and the supplied Skill Generator instructions.
+
+AUTHORITATIVE VALIDATED REQUIREMENTS:
+{requirements_json}
+
+Return only GeneratedSkillSet structured output.
+"""
+
+
+# ============================================================
+# 8. Parse structured Agent response
+# ============================================================
+
+
+def _parse_generated_skill_set(
+    result: Any,
+) -> GeneratedSkillSet:
+    """
+    Convert the Agent Framework response into GeneratedSkillSet.
+
+    Supports:
+        - Structured response value.
+        - JSON text response.
+
+    Raises:
+        ValueError: If the agent returns empty or invalid output.
+    """
+
+    response_value = getattr(result, "value", None)
+
+    if response_value is not None:
+        return GeneratedSkillSet.model_validate(response_value)
+
+    response_text = getattr(result, "text", None)
+
+    if not response_text:
+        raise ValueError(
+            "Skill Generator Agent returned no structured output."
         )
 
-    return (
-        "Generate the minimum useful set of reusable draft skills for "
-        "these validated requirements. Group related requirements when "
-        "appropriate. Use the available skill-creator guidance. Every "
-        "input requirement must be covered by at least one skill. Preserve "
-        "source requirement text exactly and follow the required schema.\n"
-        f"Requirements:\n{requirements_json}"
+    return GeneratedSkillSet.model_validate_json(response_text)
+
+
+# ============================================================
+# 9. Create Skill Generator Agent
+# ============================================================
+
+
+def _create_skill_generator_agent(
+    client: Any,
+) -> Agent:
+    """
+    Initialize the Skill Generator Agent.
+
+    The skill generation provider supplies the reusable
+    company-policy-generator skill context.
+    """
+
+    skill_generation_provider = create_skill_generation_provider()
+
+    return Agent(
+        client=client,
+        name="SkillGeneratorAgent",
+        instructions=SKILL_GENERATOR_INSTRUCTIONS,
+        context_providers=[skill_generation_provider],
+        default_options={
+            "response_format": GeneratedSkillSet,
+        },
     )
+
+
+# ============================================================
+# 10. Main skill generation workflow
+# ============================================================
 
 
 async def generate_skills(
     validated_requirements: dict[str, Any] | list[Any],
     client: Any = None,
-    max_retries: int = 3,
+    max_retries: int = MAX_GENERATION_RETRIES,
 ) -> GeneratedSkillSet:
-    """Generate and validate reusable draft skills."""
+    """
+    Generate and validate reusable Agent Skills.
+
+    Workflow:
+        1. Normalize validated requirements.
+        2. Validate requirement IDs.
+        3. Initialize the Skill Generator Agent.
+        4. Generate structured skills.
+        5. Reconstruct authoritative Source Requirements.
+        6. Run deterministic validation.
+        7. Run independent semantic validation.
+        8. Repair and retry when validation returns FAIL.
+
+    Retry behavior:
+        Structural failure:
+            Retry generation with validation findings.
+
+        Semantic FAIL:
+            Retry generation with semantic findings.
+
+        NEEDS_CLARIFICATION:
+            Stop immediately because source requirements
+            need clarification.
+
+        PASS:
+            Return the validated skill set.
+
+    Args:
+        validated_requirements:
+            Authoritative validated requirements.
+
+        client:
+            Optional Agent Framework client.
+
+        max_retries:
+            Maximum number of generation attempts.
+
+    Returns:
+        GeneratedSkillSet:
+            Successfully generated and validated skills.
+
+    Raises:
+        ValueError:
+            If generation or validation fails.
+
+        SkillValidationNeedsClarificationError:
+            If source requirements need clarification.
+    """
 
     if max_retries < 1:
-        raise ValueError("max_retries must be at least 1.")
+        raise ValueError(
+            "max_retries must be at least 1."
+        )
 
-    requirements = _normalize_requirements(validated_requirements)
+    # Step 1: Normalize and validate requirements.
+    requirements = _normalize_requirements(
+        validated_requirements
+    )
+
     known_ids = validate_requirement_input(requirements)
 
     logger.info(
-        "Generating skills for %d requirements.",
+        "Starting skill generation for %d requirements.",
         len(known_ids),
     )
 
+    # Step 2: Initialize the LLM client and generator agent.
     llm_client = client or get_foundry_client()
-    skill_provider = create_skill_design_provider()
-    agent = Agent(
-        client=llm_client,
-        name="SkillGeneratorAgent",
-        instructions=SKILL_GENERATOR_INSTRUCTIONS,
-        context_providers=[skill_provider] if skill_provider is not None else [],
-        default_options={
-            "response_format": GeneratedSkillSet,
-        },
+
+    agent = _create_skill_generator_agent(
+        client=llm_client
     )
 
     requirements_json = json.dumps(
@@ -489,72 +781,167 @@ async def generate_skills(
         separators=(",", ":"),
     )
 
+    # State retained across retry attempts.
     validation_error: str | None = None
-    previous_output_json: str | None = None
+    previous_skill_set_json: str | None = None
 
+    # Step 3: Generate and validate.
     for attempt in range(1, max_retries + 1):
+
+        logger.info(
+            "Skill generation attempt %d/%d.",
+            attempt,
+            max_retries,
+        )
+
         prompt = _build_prompt(
             requirements_json=requirements_json,
             validation_error=validation_error,
-            previous_output_json=previous_output_json,
+            previous_skill_set_json=previous_skill_set_json,
         )
+
+        # ----------------------------------------------------
+        # 3.1 Generate structured skill output
+        # ----------------------------------------------------
 
         try:
             result = await agent.run(prompt)
 
-            value = getattr(result, "value", None)
+            skill_set = _parse_generated_skill_set(result)
 
-            if value is not None:
-                skill_set = GeneratedSkillSet.model_validate(value)
-            else:
-                result_text = getattr(result, "text", None)
+            # Preserve the model output for possible repair.
+            previous_skill_set_json = skill_set.model_dump_json(
+                indent=2
+            )
 
-                if not result_text:
-                    raise ValueError(
-                        "Agent returned no structured output."
-                    )
-
-                skill_set = GeneratedSkillSet.model_validate_json(
-                    result_text
-                )
-
-            # Keep the raw attempt available for the next repair prompt,
-            # even if this attempt goes on to fail validation below.
-            previous_output_json = skill_set.model_dump_json()
-
-            # Source text is deterministic data, not LLM-authored content.
-            # Rebuild it before validation so exact traceability is reliable
-            # for any skill domain, not just company-policy skills.
+            # Replace generated source text with authoritative text.
             canonicalize_source_requirements(
                 skill_set=skill_set,
                 validated_requirements=requirements,
             )
 
+            # Run deterministic validation.
             validate_generated_skill_set(
                 skill_set=skill_set,
                 validated_requirements=requirements,
                 known_requirement_ids=known_ids,
             )
 
-            logger.info(
-                "Generated %d valid skills on attempt %d.",
-                len(skill_set.skills),
-                attempt,
+        except Exception as exc:
+
+            validation_error = (
+                "Generation or structural validation failed: "
+                f"{str(exc)[:2000]}"
             )
 
-            return skill_set
-
-        except (ValidationError, ValueError) as exc:
-            validation_error = str(exc)[:1500]
-
             logger.warning(
-                "Skill output validation failed on attempt %d/%d: %s",
+                "Skill generation failed on attempt %d/%d: %s",
                 attempt,
                 max_retries,
                 validation_error,
             )
 
             if attempt == max_retries:
-                raise
+                raise ValueError(
+                    "Skill generation failed after all attempts. "
+                    f"Last error: {validation_error}"
+                ) from exc
 
-    raise RuntimeError("Skill generation failed after all attempts.")
+            continue
+
+        # ----------------------------------------------------
+        # 3.2 Independent semantic validation
+        # ----------------------------------------------------
+
+        # Keep semantic validation outside the generation exception
+        # handler. An Azure or network error must not be treated as
+        # a semantic failure and retried as if the skill were invalid.
+        validation_result = await validate_generated_skills(
+            validated_requirements=requirements,
+            generated_skill_set=skill_set,
+            client=llm_client,
+        )
+
+        validation_status = validation_result.overall_status
+
+        # ----------------------------------------------------
+        # 3.3 PASS: return validated skills
+        # ----------------------------------------------------
+
+        if validation_status == "PASS":
+
+            logger.info(
+                "Skill generation completed successfully. "
+                "Attempt: %d | Skills: %d",
+                attempt,
+                len(skill_set.skills),
+            )
+
+            return skill_set
+
+        # ----------------------------------------------------
+        # 3.4 NEEDS_CLARIFICATION: stop generation
+        # ----------------------------------------------------
+
+        if validation_status == "NEEDS_CLARIFICATION":
+
+            clarification_details = [
+                finding.model_dump(mode="json")
+                for finding in validation_result.findings
+            ]
+
+            logger.warning(
+                "Skill generation requires clarification. "
+                "Findings: %s",
+                len(clarification_details),
+            )
+
+            raise SkillValidationNeedsClarificationError(
+                "Skill generation stopped because authoritative "
+                "requirements need clarification. "
+                "Resolve the following items before generating skills: "
+                f"{json.dumps(clarification_details, ensure_ascii=False)}"
+            )
+
+        # ----------------------------------------------------
+        # 3.5 FAIL: prepare repair prompt
+        # ----------------------------------------------------
+
+        if validation_status == "FAIL":
+
+            validation_findings = [
+                finding.model_dump(mode="json")
+                for finding in validation_result.findings
+            ]
+
+            validation_error = json.dumps(
+                validation_findings,
+                ensure_ascii=False,
+                indent=2,
+            )
+
+            logger.warning(
+                "Semantic skill validation failed. "
+                "Attempt: %d/%d | Findings: %d",
+                attempt,
+                max_retries,
+                len(validation_findings),
+            )
+
+            if attempt == max_retries:
+                raise ValueError(
+                    "Generated skills failed semantic validation "
+                    f"after {max_retries} attempts: "
+                    f"{validation_error}"
+                )
+
+            continue
+
+        # Defensive check if the validation response schema changes.
+        raise ValueError(
+            f"Unsupported skill validation status: {validation_status!r}"
+        )
+
+    raise RuntimeError(
+        "Skill generation failed after all validation attempts."
+    )

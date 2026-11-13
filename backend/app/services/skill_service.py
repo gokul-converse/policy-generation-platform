@@ -1,7 +1,6 @@
-"""Application service for generating, saving, and retrieving draft skills."""
+"""Services for generating, saving, and retrieving skills."""
 
 from pathlib import Path
-from typing import Any
 from uuid import UUID
 
 import yaml
@@ -26,58 +25,36 @@ from sqlalchemy.ext.asyncio import AsyncSession
 logger = get_logger(__name__)
 
 
-def read_skill_file_content(relative_path: str) -> str | None:
-    """Safely read a skill Markdown file from the generated skills directory."""
-    skills_root = settings.generated_skills_path.resolve()
-    file_path = (skills_root / relative_path).resolve()
-
-    # Prevent path traversal outside the generated skills directory.
-    try:
-        file_path.relative_to(skills_root)
-    except ValueError:
-        logger.warning(
-            "Rejected skill path outside generated skills directory."
-        )
-        return None
-
-    if not file_path.is_file():
-        return None
-
-    try:
-        return file_path.read_text(encoding="utf-8")
-    except OSError:
-        logger.exception(
-            "Could not read generated skill file: %s",
-            relative_path,
-        )
-        return None
-
 
 def get_builtin_skills() -> list[dict[str, str]]:
-    """Scan backend/skills for built-in Agent Skills."""
+    """Discover built-in skills from the backend skills directory."""
     backend_root = Path(settings.BACKEND_ROOT).resolve()
-    builtin_dir = backend_root / "skills"
+    builtin_directory = backend_root / "skills"
+
     results: list[dict[str, str]] = []
 
-    if not builtin_dir.is_dir():
+    if not builtin_directory.is_dir():
         return results
 
-    for item in sorted(
-        builtin_dir.iterdir(),
+    for skill_directory in sorted(
+        builtin_directory.iterdir(),
         key=lambda path: path.name.casefold(),
     ):
-        if not item.is_dir():
+        if not skill_directory.is_dir():
             continue
 
-        skill_file = item / "SKILL.md"
+        skill_file = skill_directory / "SKILL.md"
+
         if not skill_file.is_file():
             continue
 
         try:
             content = skill_file.read_text(encoding="utf-8")
-            name = item.name
+
+            name = skill_directory.name
             description = ""
 
+            # Read optional YAML frontmatter.
             if content.startswith("---"):
                 parts = content.split("---", 2)
 
@@ -87,8 +64,7 @@ def get_builtin_skills() -> list[dict[str, str]]:
                     if isinstance(frontmatter, dict):
                         frontmatter_name = frontmatter.get("name")
                         frontmatter_description = frontmatter.get(
-                            "description",
-                            "",
+                            "description", ""
                         )
 
                         if (
@@ -113,7 +89,7 @@ def get_builtin_skills() -> list[dict[str, str]]:
         except (OSError, yaml.YAMLError, ValueError):
             logger.exception(
                 "Could not read or parse built-in skill '%s'.",
-                item.name,
+                skill_directory.name,
             )
 
     return results
@@ -126,7 +102,7 @@ async def get_slash_commands(
     items: list[SlashCommandItem] = []
     seen_names: set[str] = set()
 
-    # Built-in skills are discovered from the backend skills directory.
+    # Add built-in skills.
     for builtin in get_builtin_skills():
         name = builtin["name"]
         normalized_name = name.casefold()
@@ -147,12 +123,13 @@ async def get_slash_commands(
                 source="builtin",
             )
         )
+
         seen_names.add(normalized_name)
 
-    # Generated skills are discovered from the database.
-    db_skills = await list_skills(session)
+    # Add generated skills from the database.
+    database_skills = await list_skills(session)
 
-    for skill in db_skills:
+    for skill in database_skills:
         normalized_name = skill.name.casefold()
 
         if normalized_name in seen_names:
@@ -173,63 +150,10 @@ async def get_slash_commands(
                 source="generated",
             )
         )
+
         seen_names.add(normalized_name)
 
     return items
-
-
-
-def _apply_authoritative_requirement_text(
-    adapted: Any,
-    requirement_id: str,
-    original_description: str | None,
-) -> Any:
-    """
-    Ensure the generated skill traces back to the original requirement text.
-
-    The adapter may normalize its payload; when the loader also provides the
-    authoritative original description, use it for the matching requirement.
-    """
-    if not isinstance(original_description, str) or not original_description.strip():
-        return adapted
-
-    # Work with a mutable dictionary/list even if the adapter returns a model.
-    if hasattr(adapted, "model_dump"):
-        adapted = adapted.model_dump()
-
-    if isinstance(adapted, dict):
-        requirements = adapted.get("requirements")
-        if not isinstance(requirements, list):
-            return adapted
-
-        for index, item in enumerate(requirements):
-            if hasattr(item, "model_dump"):
-                item = item.model_dump()
-                requirements[index] = item
-
-            if (
-                isinstance(item, dict)
-                and str(item.get("requirement_id")) == requirement_id
-            ):
-                item["text"] = original_description
-                return adapted
-
-        return adapted
-
-    if isinstance(adapted, list):
-        for index, item in enumerate(adapted):
-            if hasattr(item, "model_dump"):
-                item = item.model_dump()
-                adapted[index] = item
-
-            if (
-                isinstance(item, dict)
-                and str(item.get("requirement_id")) == requirement_id
-            ):
-                item["text"] = original_description
-                return adapted
-
-    return adapted
 
 
 async def generate_and_save_skills(
@@ -238,7 +162,7 @@ async def generate_and_save_skills(
     requirement_id: str,
     source_requirement_version_id: str | None = None,
 ) -> list[dict]:
-    """Generate and save skills from one requirement in a session."""
+    """Generate, validate, and save skills from a confirmed requirement."""
 
     if not session_id or not session_id.strip():
         raise ValueError("A valid session_id is required.")
@@ -249,66 +173,56 @@ async def generate_and_save_skills(
     session_id = session_id.strip()
     requirement_id = requirement_id.strip()
 
-    adapted, domain, original_description = await load_single_requirement(
+    # Load the confirmed requirement and its exact source version.
+    requirements, domain, _purpose = await load_single_requirement(
         session=session,
         requirement_id=requirement_id,
         session_id=session_id,
+        source_requirement_version_id=source_requirement_version_id,
     )
 
-    if not adapted:
+    if not requirements:
         raise ValueError(
-            f"No valid requirement found for {requirement_id!r}."
+            f"No confirmed requirement found for {requirement_id!r}."
         )
 
-    adapted = _apply_authoritative_requirement_text(
-        adapted=adapted,
-        requirement_id=requirement_id,
-        original_description=original_description,
-    )
+    loaded_version_id = requirements[0].source_version_id
+
+    if not loaded_version_id:
+        raise ValueError(
+            "The confirmed requirement version ID is missing. "
+            "Cannot save skills without source version traceability."
+        )
 
     logger.info(
-        "Generating skills for requirement_id=%s in session_id=%s; "
-        "domain=%s.",
+        "Generating skills for requirement_id=%s, session_id=%s, "
+        "source_version_id=%s, domain=%s.",
         requirement_id,
         session_id,
+        loaded_version_id,
         domain,
     )
 
-    try:
-        skill_set: GeneratedSkillSet = await generate_skills(adapted)
-    except Exception:
-        logger.exception(
-            "Skill generation failed for requirement_id=%s, session_id=%s.",
-            requirement_id,
-            session_id,
-        )
-        raise
+    # generate_skills returns only after structural and semantic PASS.
+    # Clarification or validation failure stops execution here.
+    skill_set: GeneratedSkillSet = await generate_skills(requirements)
 
-    try:
-        saved_skills = await save_skill_set(
-            session=session,
-            skill_set=skill_set,
-            source_requirement_version_id=source_requirement_version_id,
-        )
-    except Exception:
-        logger.exception(
-            "Saving generated skills failed for requirement_id=%s, session_id=%s.",
-            requirement_id,
-            session_id,
-        )
-        raise
+    # Persist only validated skills.
+    saved_skills = await save_skill_set(
+        session=session,
+        skill_set=skill_set,
+        source_requirement_version_id=loaded_version_id,
+    )
 
     results: list[dict] = []
 
     for skill in saved_skills:
         if not skill.versions:
-            logger.warning(
-                "Saved skill '%s' has no version records.",
-                skill.name,
+            raise RuntimeError(
+                f"Saved skill '{skill.name}' has no version records."
             )
-            continue
 
-        version = max(
+        latest_version = max(
             skill.versions,
             key=lambda item: item.version,
         )
@@ -318,19 +232,23 @@ async def generate_and_save_skills(
                 "skill_id": skill.id,
                 "name": skill.name,
                 "description": skill.description,
-                "version_id": version.id,
-                "version": version.version,
-                "status": version.status,
+                "version_id": latest_version.id,
+                "version": latest_version.version,
+                "status": latest_version.status,
                 "source_requirement_version_id": (
-                    version.source_requirement_version_id
+                    latest_version.source_requirement_version_id
                 ),
             }
         )
 
+    if len(results) != len(saved_skills):
+        raise RuntimeError(
+            "The saved skill response does not contain every skill."
+        )
+
     return results
 
-
-# Alias retained for compatibility with older callers.
+# Keep the previous function name for existing callers.
 save_generated_skills = generate_and_save_skills
 
 
@@ -338,7 +256,8 @@ async def get_skill_detail(
     session: AsyncSession,
     skill_id: UUID,
 ) -> SkillDetailResponse | None:
-    """Retrieve a skill and its versions, including readable file content."""
+    """Retrieve a skill and all its versions from the database."""
+
     skill = await get_skill_by_id(session, skill_id)
 
     if not skill:
@@ -349,13 +268,12 @@ async def get_skill_detail(
             version_id=version.id,
             skill_id=version.skill_id,
             version=version.version,
-            file_path=version.file_path,
             status=version.status,
             created_at=version.created_at,
             source_requirement_version_id=(
                 version.source_requirement_version_id
             ),
-            content=read_skill_file_content(version.file_path),
+            content=version.content,
         )
         for version in sorted(
             skill.versions,
@@ -372,14 +290,19 @@ async def get_skill_detail(
         versions=versions_detail,
     )
 
-
 async def list_all_skills(
     session: AsyncSession,
     limit: int | None = None,
     offset: int = 0,
 ) -> list[SkillDetailResponse]:
-    """Retrieve skills and their version metadata."""
-    skills = await list_skills(session, limit=limit, offset=offset)
+    """Retrieve all skills with their version metadata."""
+
+    skills = await list_skills(
+        session,
+        limit=limit,
+        offset=offset,
+    )
+
     results: list[SkillDetailResponse] = []
 
     for skill in skills:
@@ -388,7 +311,6 @@ async def list_all_skills(
                 version_id=version.id,
                 skill_id=version.skill_id,
                 version=version.version,
-                file_path=version.file_path,
                 status=version.status,
                 created_at=version.created_at,
                 source_requirement_version_id=(
@@ -415,15 +337,17 @@ async def list_all_skills(
 
     return results
 
-
 async def get_skill_version_detail(
     session: AsyncSession,
     skill_id: UUID,
     version: int,
 ) -> SkillVersionDetail | None:
-    """Retrieve one skill version, including its Markdown content."""
+    """Retrieve a specific skill version with its database content."""
+
     if version < 1:
-        raise ValueError("Skill version must be greater than or equal to 1.")
+        raise ValueError(
+            "Skill version must be greater than or equal to 1."
+        )
 
     skill_version = await get_skill_version(
         session,
@@ -438,11 +362,10 @@ async def get_skill_version_detail(
         version_id=skill_version.id,
         skill_id=skill_version.skill_id,
         version=skill_version.version,
-        file_path=skill_version.file_path,
         status=skill_version.status,
         created_at=skill_version.created_at,
         source_requirement_version_id=(
             skill_version.source_requirement_version_id
         ),
-        content=read_skill_file_content(skill_version.file_path),
+        content=skill_version.content,
     )

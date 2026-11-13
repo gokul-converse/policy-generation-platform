@@ -131,17 +131,12 @@ async def update_session_status(
         session.status = status
 
         if domain is not None:
-            allowed_domains = {
-                "hr",
-                "finance",
-                "it_security",
-                "general",
-            }
+            if not isinstance(domain, str) or not domain.strip():
+                raise ValueError(
+                    "Policy domain must be a non-empty string"
+                )
 
-            if domain not in allowed_domains:
-                raise ValueError(f"Invalid policy domain: {domain}")
-
-            session.domain = domain
+            session.domain = domain.strip()
 
         session.updated_at = datetime.now(timezone.utc).isoformat()
 

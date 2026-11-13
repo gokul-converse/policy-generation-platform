@@ -1,4 +1,4 @@
-"""Pydantic data models for policy generation, validation, review, and UI output."""
+"""Pydantic models for policy generation, validation, review, and UI output."""
 
 from datetime import datetime
 from typing import Literal
@@ -6,55 +6,49 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+# Simple lifecycle statuses
+PolicyStatus = Literal["draft", "active", "archived"]
+PolicyVersionStatus = Literal["draft", "active", "superseded"]
+ValidationStatus = Literal[
+    "pending",
+    "pass",
+    "fail",
+    "needs_clarification",
+]
+
 
 class PolicySectionModel(BaseModel):
-    """Represents a discrete, editable section of a policy document."""
+    """Represents a discrete, editable section of a policy."""
 
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
 
-    section_id: str = Field(
-        min_length=1,
-        description="Stable section identifier (e.g. SEC-001 or purpose).",
-    )
-    title: str = Field(
-        min_length=1,
-        description="Human-readable section title.",
-    )
-    content: str = Field(
-        min_length=1,
-        description="Substantive policy content.",
-    )
-    requirement_ids: list[str] = Field(
-        default_factory=list,
-        description="Source requirement IDs mapped to this section.",
-    )
+    section_id: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    content: str = Field(min_length=1)
+    requirement_ids: list[str] = Field(default_factory=list)
 
 
 class ValidationFinding(BaseModel):
-    """An individual validation observation or quality finding."""
+    """An individual policy validation observation."""
 
     model_config = ConfigDict(extra="forbid")
 
-    rule_name: str = Field(
-        description="Name of the validation check performed."
-    )
+    rule_name: str
     status: Literal[
         "PASS",
         "FAIL",
         "NEEDS_CLARIFICATION",
         "NOT_APPLICABLE",
-    ] = Field(description="Outcome of this validation check.")
-    message: str = Field(
-        description="Concise description of the finding."
-    )
-    details: list[str] = Field(
-        default_factory=list,
-        description="Detailed items, diffs, or diagnostic messages.",
-    )
+    ]
+    message: str
+    details: list[str] = Field(default_factory=list)
 
 
 class PolicyValidationReport(BaseModel):
-    """Comprehensive validation report for a policy draft."""
+    """Complete policy validation report."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -62,114 +56,112 @@ class PolicyValidationReport(BaseModel):
         "PASS",
         "FAIL",
         "NEEDS_CLARIFICATION",
-    ] = Field(description="Aggregate validation determination.")
-    coverage_score: float = Field(
-        ge=0.0,
-        le=1.0,
-        description=(
-            "Proportion of source requirements fully addressed (0.0 to 1.0)."
-        ),
-    )
+    ]
+
+    coverage_score: float = Field(ge=0.0, le=1.0)
+
     missing_requirements: list[str] = Field(
         default_factory=list,
-        description="Requirement IDs not addressed in the policy draft.",
-    )
-    findings: list[ValidationFinding] = Field(
-        default_factory=list,
-        description="Collection of specific rule evaluation findings.",
-    )
-    clarification_items: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Ambiguities or unresolved questions requiring human guidance."
-        ),
     )
 
+    findings: list[ValidationFinding] = Field(
+        default_factory=list,
+    )
+
+    clarification_items: list[str] = Field(
+        default_factory=list,
+    )
 
 
 
 class PolicyGenerationRequest(BaseModel):
-    """Request to generate a policy from confirmed requirements."""
+    """Generate a policy using an existing skill."""
 
     model_config = ConfigDict(
         extra="forbid",
         str_strip_whitespace=True,
     )
 
-    session_id: str = Field(
-        min_length=1,
-        description="ID of the requirement-gathering session.",
-    )
-
-    requirement_id: str = Field(
-        min_length=1,
-        description="ID of the requirement to generate the policy from.",
-    )
-
-    source_requirement_version_id: str | None = Field(
-        default=None,
-        description="Optional authoritative source requirement version ID.",
-    )
-
-    skill_command: str = Field(
-        default="/policy",
-        min_length=1,
-        description="Slash command that selects the policy-generation workflow.",
-    )
+    skill_command: str = Field(min_length=1)
 
 
 
 
 class PolicyModificationRequest(BaseModel):
-    """Request to revise a policy section using AI instructions."""
+    """Regenerate the complete policy from overall user feedback."""
 
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
-
-    section_id: str = Field(
-        min_length=1,
-        description="ID of the policy section to revise.",
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
     )
-    instructions: str = Field(
+
+    feedback: str = Field(
         min_length=1,
         description=(
-            "Instructions describing the requested change. "
-            "The service must validate changes against authoritative requirements."
+            "Overall feedback for the complete policy, "
+            "not feedback for an individual section."
         ),
     )
-    
-    
-    
+
+
 class PolicyVersionSummary(BaseModel):
-    """Summary of a version record for a policy."""
+    """Summary of an individual policy version."""
 
     version_id: UUID
     policy_id: UUID
     version: int
-    status: str
-    validation_status: str
+
+    status: PolicyVersionStatus
+
+    validation_status: ValidationStatus
+
     change_summary: str | None = None
     created_at: datetime
 
 
+
 class PolicyResponse(BaseModel):
-    """Structured policy representation for the UI and client consumers."""
+    """Complete  policy response """
 
     model_config = ConfigDict(extra="forbid")
 
+    # Policy identity
     policy_id: UUID
     version: int
+
+    # Policy metadata
     title: str
     description: str | None = None
     domain: str
-    status: str
+
+    # Overall policy lifecycle
+    policy_status: PolicyStatus
+
+    # Individual version lifecycle
+    status: PolicyVersionStatus
+
+    # Structured policy content
     sections: list[PolicySectionModel]
-    applied_skill_ids: list[str] = Field(default_factory=list)
-    source_requirement_version_id: str | None = None
-    validation_status: str
-    validation_report: PolicyValidationReport | None = None
-    change_summary: str | None = None
-    policy_text_path: str | None = Field(
-        default=None,
-        description="Relative path to the generated data/policy.txt document.",
+
+    # Readable policy document
+    policy_text: str
+
+    # Skill lineage
+    applied_skill_ids: list[str] = Field(
+        default_factory=list,
     )
+
+    applied_skill_version_ids: list[str] = Field(
+        default_factory=list,
+    )
+
+    # Original source requirement lineage
+    source_requirement_version_id: str | None = None
+
+    # Validation results
+    validation_status: ValidationStatus
+    validation_report: PolicyValidationReport | None = None
+
+    # Version information
+    change_summary: str | None = None
     created_at: datetime

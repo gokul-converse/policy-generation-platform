@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import re
 from typing import Any
 
@@ -11,6 +9,7 @@ from app.models.policy_api import (
 from app.models.skill_api import ValidatedRequirementInput
 from app.services.requirement_adapter import extract_numbers_and_units
 
+
 PLACEHOLDER_PATTERNS = [
     re.compile(r"\[\s*TODO\s*\]", re.IGNORECASE),
     re.compile(r"\[\s*TBD\s*\]", re.IGNORECASE),
@@ -18,53 +17,105 @@ PLACEHOLDER_PATTERNS = [
     re.compile(r"\[\s*PLACEHOLDER\s*\]", re.IGNORECASE),
 ]
 
-# Recognizes common explicit numeric replacements, for example:
-# "change from 20 days to 25 days", "replace 20 days with 25 days".
-_NUMERIC_REPLACEMENT_PATTERNS = [
-    re.compile(
-        r"\bfrom\s+(?P<old>\d+(?:\.\d+)?)\s*"
-        r"(?P<old_unit>days?|weeks?|months?|years?|hours?|minutes?|%|percent)?"
-        r"\s+to\s+(?P<new>\d+(?:\.\d+)?)\s*"
-        r"(?P<new_unit>days?|weeks?|months?|years?|hours?|minutes?|%|percent)?\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\b(?:change|set|update)\b.{0,50}?"
-        r"(?P<old>\d+(?:\.\d+)?)\s*"
-        r"(?P<old_unit>days?|weeks?|months?|years?|hours?|minutes?|%|percent)?"
-        r"\s+(?:to|into)\s+(?P<new>\d+(?:\.\d+)?)\s*"
-        r"(?P<new_unit>days?|weeks?|months?|years?|hours?|minutes?|%|percent)?\b",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"\breplace\s+(?P<old>\d+(?:\.\d+)?)\s*"
-        r"(?P<old_unit>days?|weeks?|months?|years?|hours?|minutes?|%|percent)?"
-        r"\s+with\s+(?P<new>\d+(?:\.\d+)?)\s*"
-        r"(?P<new_unit>days?|weeks?|months?|years?|hours?|minutes?|%|percent)?\b",
-        re.IGNORECASE,
-    ),
-]
 
+def _normalize_requirement(
+    requirement: Any,
+) -> tuple[str, str, list[str]]:
+    """
+    Normalize one Source Requirement.
 
-def _normalize_requirement(req: Any) -> tuple[str, str, list[str]] | None:
-    """Return requirement ID, source text, and numeric/unit values."""
-    if isinstance(req, ValidatedRequirementInput):
-        req_id = str(req.requirement_id or "").strip()
-        source_text = str(req.text or "").strip()
-        numerics = list(req.numeric_values or [])
-    elif isinstance(req, dict):
-        req_id = str(req.get("requirement_id", "")).strip()
-        source_text = str(
-            req.get("text") or req.get("requirement_text") or req.get("description") or ""
+    Returns:
+        requirement_id, source_text, numeric_values
+    """
+
+    if isinstance(requirement, ValidatedRequirementInput):
+        requirement_id = str(
+            requirement.requirement_id or ""
         ).strip()
-        numerics = list(req.get("numeric_values") or [])
+
+        source_text = str(requirement.text or "").strip()
+        numeric_values = list(requirement.numeric_values or [])
+
+    elif isinstance(requirement, dict):
+        requirement_id = str(
+            requirement.get("requirement_id") or ""
+        ).strip()
+
+        source_text = str(
+            requirement.get("text")
+            or requirement.get("requirement_text")
+            or requirement.get("description")
+            or ""
+        ).strip()
+
+        numeric_values = list(
+            requirement.get("numeric_values") or []
+        )
+
     else:
-        return None
+        raise ValueError(
+            f"Unsupported Source Requirement type: "
+            f"{type(requirement).__name__}"
+        )
 
-    if not numerics and source_text:
-        numerics = extract_numbers_and_units(source_text)
+    if not requirement_id:
+        raise ValueError(
+            "Every Source Requirement must have a requirement_id."
+        )
 
-    return req_id, source_text, [str(value).strip() for value in numerics if str(value).strip()]
+    if not source_text:
+        raise ValueError(
+            f"Source Requirement '{requirement_id}' has empty text."
+        )
+
+    if not numeric_values:
+        numeric_values = extract_numbers_and_units(source_text)
+
+    normalized_values = [
+        str(value).strip()
+        for value in numeric_values
+        if str(value).strip()
+    ]
+
+    return requirement_id, source_text, normalized_values
+
+
+def _normalize_requirements(
+    requirements: list[
+        ValidatedRequirementInput | dict[str, Any]
+    ],
+) -> dict[str, dict[str, Any]]:
+    """Normalize and validate all skill Source Requirements."""
+
+    if not requirements:
+        raise ValueError(
+            "At least one skill Source Requirement is required."
+        )
+
+    requirement_map: dict[str, dict[str, Any]] = {}
+
+    for index, requirement in enumerate(requirements, start=1):
+        try:
+            requirement_id, source_text, numeric_values = (
+                _normalize_requirement(requirement)
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid Source Requirement at position {index}: {exc}"
+            ) from exc
+
+        if requirement_id in requirement_map:
+            raise ValueError(
+                f"Duplicate Source Requirement ID: {requirement_id}"
+            )
+
+        requirement_map[requirement_id] = {
+            "text": source_text,
+            "numeric_values": numeric_values,
+        }
+
+    return requirement_map
+
 
 
 def _build_report(
@@ -101,334 +152,622 @@ def _build_report(
     )
 
 
+def _validate_section_numbering(
+    sections: list[PolicySectionModel],
+) -> list[str]:
+    """
+    Validate hierarchical handbook numbering.
+
+    Valid:
+        1
+        1.1
+        1.2
+        2
+        2.1
+
+    Invalid:
+        SEC-001
+        1.3 before 1.2
+        2.1 before section 2
+        1, 3 (missing section 2)
+    """
+
+    issues: list[str] = []
+
+    main_sections: list[int] = []
+    subsection_counts: dict[int, int] = {}
+
+    for section in sections:
+        section_id = str(
+            getattr(section, "section_id", "") or ""
+        ).strip()
+
+        if not re.fullmatch(r"[1-9]\d*(?:\.[1-9]\d*)?", section_id):
+            issues.append(
+                f"Invalid handbook section ID '{section_id}'. "
+                "Expected numbering such as 1, 1.1 or 1.2."
+            )
+            continue
+
+        if "." not in section_id:
+            main_number = int(section_id)
+            expected_main = len(main_sections) + 1
+
+            if main_number != expected_main:
+                issues.append(
+                    f"Expected main section {expected_main}, "
+                    f"but received {section_id}."
+                )
+                continue
+
+            main_sections.append(main_number)
+            subsection_counts[main_number] = 0
+
+        else:
+            main_part, subsection_part = section_id.split(".")
+
+            main_number = int(main_part)
+            subsection_number = int(subsection_part)
+
+            if main_number not in main_sections:
+                issues.append(
+                    f"Subsection {section_id} has no preceding "
+                    f"main section {main_number}."
+                )
+                continue
+
+            expected_subsection = (
+                subsection_counts[main_number] + 1
+            )
+
+            if subsection_number != expected_subsection:
+                issues.append(
+                    f"Expected subsection "
+                    f"{main_number}.{expected_subsection}, "
+                    f"but received {section_id}."
+                )
+                continue
+
+            subsection_counts[main_number] = subsection_number
+
+    return issues
+
+
 def validate_policy_draft(
     sections: list[PolicySectionModel],
-    requirements: list[ValidatedRequirementInput] | list[dict[str, Any]],
+    requirements: list[
+        ValidatedRequirementInput | dict[str, Any]
+    ],
     unresolved_items: list[str] | None = None,
 ) -> PolicyValidationReport:
-    """Validate structure, traceability, coverage, numeric fidelity and placeholders."""
+    """
+    Perform deterministic validation of a generated policy.
+
+    Validates:
+    1. Section completeness.
+    2. Section ID validity.
+    3. Source Requirement mapping integrity.
+    4. Source Requirement coverage.
+    5. Numeric and unit preservation.
+    6. Placeholder detection.
+
+    Semantic compliance is handled separately by the
+    Policy Validation Agent.
+
+    Requirements are taken from the selected SkillVersion.
+    """
+
     findings: list[ValidationFinding] = []
     unresolved = list(unresolved_items or [])
 
-    req_map: dict[str, dict[str, Any]] = {}
-    for raw_req in requirements:
-        normalized = _normalize_requirement(raw_req)
-        if normalized is None:
-            continue
-        req_id, source_text, numerics = normalized
-        if req_id:
-            req_map[req_id] = {"text": source_text, "numeric_values": numerics}
+    # --------------------------------------------------
+    # 1. Normalize skill Source Requirements
+    # --------------------------------------------------
 
-    known_req_ids = set(req_map)
+    requirement_map = _normalize_requirements(requirements)
+    known_requirement_ids = set(requirement_map)
 
-    # 1. Section completeness.
+    # --------------------------------------------------
+    # 2. Section completeness
+    # --------------------------------------------------
+
     if not sections:
-        findings.append(ValidationFinding(
-            rule_name="section_completeness", status="FAIL",
-            message="Policy contains no sections.",
-            details=["At least one policy section is required."],
-        ))
+        findings.append(
+            ValidationFinding(
+                rule_name="section_completeness",
+                status="FAIL",
+                message="Policy contains no sections.",
+                details=[
+                    "At least one policy section is required."
+                ],
+            )
+        )
     else:
         empty_sections = [
-            section.section_id or "<empty ID>"
+            str(
+                getattr(section, "section_id", None)
+                or "<empty ID>"
+            )
             for section in sections
-            if not str(section.title or "").strip()
-            or not str(section.content or "").strip()
+            if not str(
+                getattr(section, "title", None) or ""
+            ).strip()
+            or not str(
+                getattr(section, "content", None) or ""
+            ).strip()
         ]
-        findings.append(ValidationFinding(
-            rule_name="section_completeness",
-            status="FAIL" if empty_sections else "PASS",
-            message=("One or more policy sections are empty." if empty_sections
-                     else "All policy sections have titles and content."),
-            details=[f"Empty section: {section_id}" for section_id in empty_sections],
-        ))
 
-    # 2. Section IDs must be non-empty and unique.
-    ids = [str(section.section_id or "").strip() for section in sections]
-    id_issues: list[str] = []
-    if any(not section_id for section_id in ids):
-        id_issues.append("One or more sections have an empty section_id.")
-    seen: set[str] = set()
-    duplicates: set[str] = set()
-    for section_id in ids:
-        if section_id and section_id in seen:
-            duplicates.add(section_id)
-        seen.add(section_id)
-    id_issues.extend(f"Duplicate section ID: {item}" for item in sorted(duplicates))
-    findings.append(ValidationFinding(
-        rule_name="section_id_validity",
-        status="FAIL" if id_issues else "PASS",
-        message=("Section IDs must be present and unique." if id_issues
-                 else "All section IDs are present and unique."),
-        details=id_issues,
-    ))
+        findings.append(
+            ValidationFinding(
+                rule_name="section_completeness",
+                status="FAIL" if empty_sections else "PASS",
+                message=(
+                    "One or more policy sections are empty."
+                    if empty_sections
+                    else "All policy sections have titles and content."
+                ),
+                details=[
+                    f"Empty section: {section_id}"
+                    for section_id in empty_sections
+                ],
+            )
+        )
 
-    # 3. Requirement source-ID validity.
-    cited_ids = {
-        str(requirement_id).strip()
+    # --------------------------------------------------
+    # 3. Section ID validity
+    # --------------------------------------------------
+
+    section_ids = [
+        str(
+            getattr(section, "section_id", None) or ""
+        ).strip()
         for section in sections
-        for requirement_id in (section.requirement_ids or [])
-        if str(requirement_id).strip()
-    }
-    unauthorized_ids = cited_ids - known_req_ids
-    findings.append(ValidationFinding(
-        rule_name="source_id_validity",
-        status="FAIL" if unauthorized_ids else "PASS",
-        message=("Policy references unauthorized or unknown requirement IDs."
-                 if unauthorized_ids
-                 else "All cited requirement IDs are valid and present in input."),
-        details=[f"Unauthorized ID cited: {item}" for item in sorted(unauthorized_ids)],
-    ))
-
-    # 4. Coverage means IDs are cited, not that semantic compliance is proven.
-    if known_req_ids:
-        missing_ids = sorted(known_req_ids - cited_ids)
-        coverage = round((len(known_req_ids) - len(missing_ids)) / len(known_req_ids), 4)
-    else:
-        missing_ids = []
-        coverage = 1.0
-
-    findings.append(ValidationFinding(
-        rule_name="requirement_coverage",
-        status="FAIL" if missing_ids else "PASS",
-        message=(f"Requirement coverage is {coverage:.0%}; {len(missing_ids)} requirements are unaddressed."
-                 if missing_ids else "100% of validated requirement IDs are cited in policy sections."),
-        details=[f"Unaddressed requirement: {item}" for item in missing_ids],
-    ))
-
-    full_text = "\n\n".join(f"{section.title}\n{section.content}" for section in sections)
-
-    # 5. Numeric/unit preservation against each requirement's mapped sections.
-    numeric_failures: list[str] = []
-    for req_id, req_data in req_map.items():
-        mapped_content = "\n".join(
-            section.content for section in sections if req_id in (section.requirement_ids or [])
-        )
-        content = mapped_content if mapped_content.strip() else full_text
-        for numeric_value in req_data["numeric_values"]:
-            if numeric_value.casefold() not in content.casefold():
-                numeric_failures.append(
-                    f"Requirement {req_id}: source numeric/unit value '{numeric_value}' was not found in mapped policy content."
-                )
-    findings.append(ValidationFinding(
-        rule_name="numeric_preservation",
-        status="FAIL" if numeric_failures else "PASS",
-        message=("One or more source numeric/unit values are missing."
-                 if numeric_failures else "All extracted source numeric/unit values are present in mapped policy content."),
-        details=numeric_failures,
-    ))
-
-    # 6. Placeholder detection.
-    placeholders = [
-        match.group(0)
-        for pattern in PLACEHOLDER_PATTERNS
-        for match in pattern.finditer(full_text)
     ]
-    findings.append(ValidationFinding(
-        rule_name="placeholder_detection",
-        status="FAIL" if placeholders else "PASS",
-        message=("Policy draft contains incomplete placeholder tokens."
-                 if placeholders else "No configured placeholder tokens were found."),
-        details=[f"Found placeholder: {value}" for value in placeholders],
-    ))
 
-    return _build_report(findings, missing_ids, unresolved, coverage)
+    id_issues: list[str] = []
 
+    if any(not section_id for section_id in section_ids):
+        id_issues.append(
+            "One or more sections have an empty section_id."
+        )
 
+    seen_section_ids: set[str] = set()
+    duplicate_section_ids: set[str] = set()
 
-def validate_policy_modification(
-    original_section: PolicySectionModel,
-    revised_section: PolicySectionModel,
-    instructions: str,
-    requirements: list[ValidatedRequirementInput] | list[dict[str, Any]],
-) -> PolicyValidationReport:
-    """Validate a proposed policy modification before version creation."""
+    for section_id in section_ids:
+        if not section_id:
+            continue
 
-    findings: list[ValidationFinding] = []
-    instruction = (instructions or "").strip()
+        if section_id in seen_section_ids:
+            duplicate_section_ids.add(section_id)
 
-    original_content = str(original_section.content or "")
-    revised_content = str(revised_section.content or "")
+        seen_section_ids.add(section_id)
 
-    normalized_revision = re.sub(
-        r"\s+", " ", revised_content.casefold()
+    id_issues.extend(
+        f"Duplicate section ID: {section_id}"
+        for section_id in sorted(duplicate_section_ids)
     )
-
-    # 1. Validate section identity and content.
-    identity_issues: list[str] = []
-
-    if revised_section.section_id != original_section.section_id:
-        identity_issues.append(
-            "The revision changed the section_id."
-        )
-
-    if not str(revised_section.title or "").strip():
-        identity_issues.append(
-            "The revised section has no title."
-        )
-
-    if not revised_content.strip():
-        identity_issues.append(
-            "The revised section has no content."
-        )
 
     findings.append(
         ValidationFinding(
-            rule_name="modification_section_identity",
-            status="FAIL" if identity_issues else "PASS",
+            rule_name="section_id_validity",
+            status="FAIL" if id_issues else "PASS",
             message=(
-                "The revised section identity/content is invalid."
-                if identity_issues
-                else "The revised section retains a valid identity and content."
+                "Section IDs must be present and unique."
+                if id_issues
+                else "All section IDs are present and unique."
             ),
-            details=identity_issues,
+            details=id_issues,
+        )
+        
+    )
+    
+    # --------------------------------------------------
+    # 3A. Handbook section numbering
+    # --------------------------------------------------
+
+    numbering_issues = _validate_section_numbering(
+        sections
+    )
+
+    findings.append(
+        ValidationFinding(
+            rule_name="handbook_section_numbering",
+            status=(
+                "FAIL"
+                if numbering_issues
+                else "PASS"
+            ),
+            message=(
+                "Policy section numbering does not follow "
+                "the required handbook hierarchy."
+                if numbering_issues
+                else "Policy section numbering follows "
+                "the required handbook hierarchy."
+            ),
+            details=numbering_issues,
         )
     )
 
-    # 2. Detect explicit numeric replacement requests.
-    replacement = None
 
-    for pattern in _NUMERIC_REPLACEMENT_PATTERNS:
-        replacement = pattern.search(instruction)
-        if replacement:
-            break
+    # --------------------------------------------------
+    # 4. Source Requirement mapping integrity
+    # --------------------------------------------------
 
-    instruction_issues: list[str] = []
-    source_conflicts: list[str] = []
+    cited_requirement_ids: set[str] = set()
+    mapping_issues: list[str] = []
 
-    if replacement:
-        old_value = replacement.group("old")
-        new_value = replacement.group("new")
-
-        old_unit = (
-            replacement.groupdict().get("old_unit") or ""
-        ).casefold()
-
-        new_unit = (
-            replacement.groupdict().get("new_unit") or ""
-        ).casefold()
-
-        expected_unit = new_unit or old_unit
-
-        # Build numeric patterns without confusing 25 with 250.
-        def value_pattern(value: str, unit: str) -> re.Pattern:
-            unit_part = (
-                rf"\s+{re.escape(unit)}\b"
-                if unit
-                else ""
-            )
-            return re.compile(
-                rf"(?<!\d){re.escape(value)}(?![\d.])"
-                rf"{unit_part}",
-                re.IGNORECASE,
-            )
-
-        requested_pattern = value_pattern(
-            new_value, expected_unit
+    for section in sections:
+        section_id = str(
+            getattr(section, "section_id", None)
+            or "<empty ID>"
         )
 
-        # Check authoritative requirements first.
-        for raw_req in requirements:
-            normalized = _normalize_requirement(raw_req)
+        requirement_ids = (
+            getattr(section, "requirement_ids", None) or []
+        )
 
-            if normalized is None:
+        if not isinstance(requirement_ids, list):
+            mapping_issues.append(
+                f"Section {section_id} has invalid requirement_ids."
+            )
+            continue
+
+        section_requirement_ids: list[str] = []
+
+        for requirement_id in requirement_ids:
+            if not isinstance(requirement_id, str):
+                mapping_issues.append(
+                    f"Section {section_id} contains a "
+                    "non-string Source Requirement ID."
+                )
                 continue
 
-            req_id, source_text, _ = normalized
+            normalized_id = requirement_id.strip()
 
-            source_text_normalized = re.sub(
-                r"\s+", " ", source_text.casefold()
-            )
-
-            old_pattern = value_pattern(old_value, old_unit)
-            source_new_pattern = value_pattern(
-                new_value, expected_unit
-            )
-
-            if (
-                old_pattern.search(source_text_normalized)
-                and not source_new_pattern.search(
-                    source_text_normalized
+            if not normalized_id:
+                mapping_issues.append(
+                    f"Section {section_id} contains an empty "
+                    "Source Requirement ID."
                 )
-            ):
-                old_display = (
-                    f"{old_value} {old_unit}".strip()
-                )
-                new_display = (
-                    f"{new_value} {expected_unit}".strip()
-                )
+                continue
 
-                source_conflicts.append(
-                    f"Requirement {req_id} specifies "
-                    f"'{old_display}', not '{new_display}'. "
-                    "Update and validate the authoritative "
-                    "requirement before applying this change."
-                )
+            section_requirement_ids.append(normalized_id)
+            cited_requirement_ids.add(normalized_id)
 
-        # Only report the missing replacement when the source
-        # requirements do not already explain why it was rejected.
-        if (
-            not source_conflicts
-            and not requested_pattern.search(normalized_revision)
+        if len(section_requirement_ids) != len(
+            set(section_requirement_ids)
         ):
-            requested_display = (
-                f"{new_value} {expected_unit}".strip()
+            mapping_issues.append(
+                f"Section {section_id} contains duplicate "
+                "Source Requirement IDs."
             )
 
-            instruction_issues.append(
-                f"Requested replacement value '{requested_display}' "
-                "is absent from the revised section."
-            )
-
-        instruction_issues.extend(source_conflicts)
-
-    findings.append(
-        ValidationFinding(
-            rule_name="modification_instruction_compliance",
-            status="FAIL" if instruction_issues else "PASS",
-            message=(
-                "The requested modification conflicts with authoritative "
-                "requirements or was not applied."
-                if instruction_issues
-                else "The requested modification passed the deterministic checks."
-            ),
-            details=instruction_issues,
-        )
+    unknown_requirement_ids = (
+        cited_requirement_ids - known_requirement_ids
     )
 
-    # 3. Preserve all existing requirement mappings.
-    original_ids = {
-        str(item).strip()
-        for item in (original_section.requirement_ids or [])
-        if str(item).strip()
-    }
-
-    revised_ids = {
-        str(item).strip()
-        for item in (revised_section.requirement_ids or [])
-        if str(item).strip()
-    }
-
-    mapping_issues: list[str] = []
-    removed_ids = original_ids - revised_ids
-
-    if removed_ids:
-        mapping_issues.append(
-            "The revision removed existing requirement mappings: "
-            + ", ".join(sorted(removed_ids))
-        )
+    mapping_issues.extend(
+        f"Unknown Source Requirement ID cited: {requirement_id}"
+        for requirement_id in sorted(unknown_requirement_ids)
+    )
 
     findings.append(
         ValidationFinding(
-            rule_name="modification_traceability",
+            rule_name="source_requirement_mapping",
             status="FAIL" if mapping_issues else "PASS",
             message=(
-                "Requirement mappings were removed."
+                "One or more Source Requirement mappings are invalid."
                 if mapping_issues
-                else "Existing requirement mappings were preserved."
+                else "All cited Source Requirement IDs are valid."
             ),
             details=mapping_issues,
         )
     )
 
-    return _build_report(findings)
+    # --------------------------------------------------
+    # 5. Source Requirement coverage
+    # --------------------------------------------------
+
+    missing_requirement_ids = sorted(
+        known_requirement_ids - cited_requirement_ids
+    )
+
+    total_requirements = len(known_requirement_ids)
+
+    coverage_score = round(
+        (
+            total_requirements
+            - len(missing_requirement_ids)
+        ) / total_requirements,
+        4,
+    )
+
+    findings.append(
+        ValidationFinding(
+            rule_name="source_requirement_coverage",
+            status=(
+                "FAIL"
+                if missing_requirement_ids
+                else "PASS"
+            ),
+            message=(
+                f"Source Requirement coverage is "
+                f"{coverage_score:.0%}; "
+                f"{len(missing_requirement_ids)} "
+                "requirements are not mapped."
+                if missing_requirement_ids
+                else "100% of skill Source Requirements "
+                "are mapped to policy sections."
+            ),
+            details=[
+                f"Unaddressed Source Requirement: {requirement_id}"
+                for requirement_id in missing_requirement_ids
+            ],
+        )
+    )
+
+    # --------------------------------------------------
+    # 6. Numeric and unit preservation
+    # --------------------------------------------------
+
+    numeric_failures: list[str] = []
+
+    for requirement_id, requirement_data in requirement_map.items():
+
+        mapped_content = "\n".join(
+            str(section.content or "")
+            for section in sections
+            if requirement_id in (
+                getattr(section, "requirement_ids", None) or []
+            )
+        )
+
+        for numeric_value in requirement_data["numeric_values"]:
+            if numeric_value.casefold() not in mapped_content.casefold():
+                numeric_failures.append(
+                    f"Source Requirement {requirement_id}: "
+                    f"numeric/unit value '{numeric_value}' "
+                    "is missing from its mapped policy content."
+                )
+
+    findings.append(
+        ValidationFinding(
+            rule_name="numeric_preservation",
+            status="FAIL" if numeric_failures else "PASS",
+            message=(
+                "One or more source numeric/unit values "
+                "are missing from mapped policy sections."
+                if numeric_failures
+                else "All extracted source numeric/unit values "
+                "are preserved in mapped policy sections."
+            ),
+            details=numeric_failures,
+        )
+    )
+
+    # --------------------------------------------------
+    # 7. Placeholder detection
+    # --------------------------------------------------
+
+    full_text = "\n\n".join(
+        f"{section.title}\n{section.content}"
+        for section in sections
+    )
+
+    placeholders = [
+        match.group(0)
+        for pattern in PLACEHOLDER_PATTERNS
+        for match in pattern.finditer(full_text)
+    ]
+
+    findings.append(
+        ValidationFinding(
+            rule_name="placeholder_detection",
+            status="FAIL" if placeholders else "PASS",
+            message=(
+                "Policy draft contains incomplete placeholder tokens."
+                if placeholders
+                else "No configured placeholder tokens were found."
+            ),
+            details=[
+                f"Found placeholder: {value}"
+                for value in placeholders
+            ],
+        )
+    )
+
+    # --------------------------------------------------
+    # 8. Build validation report
+    # --------------------------------------------------
+
+    return _build_report(
+        findings=findings,
+        missing_ids=missing_requirement_ids,
+        unresolved_items=unresolved,
+        coverage_score=coverage_score,
+    )
+
+
+
+def merge_policy_validation_reports(
+    deterministic_report: PolicyValidationReport,
+    semantic_report: Any,
+    total_requirements: int | None = None,
+) -> PolicyValidationReport:
+    """
+    Merge deterministic and semantic policy validation reports.
+
+    Status priority:
+        FAIL > NEEDS_CLARIFICATION > PASS
+
+    Deterministic validation provides structural and traceability checks.
+    Semantic validation provides meaning, compliance, and business-rule checks.
+    """
+
+    if deterministic_report is None:
+        raise ValueError(
+            "Deterministic policy validation report is required."
+        )
+
+    if semantic_report is None:
+        raise ValueError(
+            "Semantic policy validation report is required."
+        )
+
+    # Start with deterministic validation findings.
+    merged_findings: list[ValidationFinding] = list(
+        deterministic_report.findings or []
+    )
+
+    # Add semantic validation findings.
+    semantic_findings = getattr(
+        semantic_report,
+        "findings",
+        [],
+    ) or []
+
+    for finding in semantic_findings:
+        if isinstance(finding, ValidationFinding):
+            merged_findings.append(finding)
+
+        elif isinstance(finding, dict):
+            merged_findings.append(
+                ValidationFinding.model_validate(finding)
+            )
+
+        else:
+            raise ValueError(
+                "Semantic validation returned an unsupported finding type: "
+                f"{type(finding).__name__}"
+            )
+
+    # Merge missing requirement IDs without duplicates.
+    missing_requirements: list[str] = []
+    seen_missing: set[str] = set()
+
+    all_missing = [
+        *(deterministic_report.missing_requirements or []),
+        *(
+            getattr(semantic_report, "missing_requirements", [])
+            or []
+        ),
+    ]
+
+    for requirement_id in all_missing:
+        if not isinstance(requirement_id, str):
+            continue
+
+        normalized_id = requirement_id.strip()
+
+        if normalized_id and normalized_id not in seen_missing:
+            missing_requirements.append(normalized_id)
+            seen_missing.add(normalized_id)
+
+    # Merge clarification items without duplicates.
+    clarification_items: list[str] = []
+    seen_clarifications: set[str] = set()
+
+    all_clarifications = [
+        *(deterministic_report.clarification_items or []),
+        *(
+            getattr(semantic_report, "clarification_items", [])
+            or []
+        ),
+    ]
+
+    for item in all_clarifications:
+        if not isinstance(item, str):
+            continue
+
+        normalized_item = item.strip()
+        comparison_key = normalized_item.casefold()
+
+        if normalized_item and comparison_key not in seen_clarifications:
+            clarification_items.append(normalized_item)
+            seen_clarifications.add(comparison_key)
+
+    # Preserve the semantic agent's overall status.
+    semantic_status = getattr(
+        semantic_report,
+        "overall_status",
+        None,
+    )
+
+    if semantic_status not in {
+        "PASS",
+        "FAIL",
+        "NEEDS_CLARIFICATION",
+    }:
+        raise ValueError(
+            f"Invalid semantic validation status: {semantic_status!r}"
+        )
+
+    # A semantic FAIL must never be silently converted into PASS.
+    has_failure = (
+        deterministic_report.overall_status == "FAIL"
+        or semantic_status == "FAIL"
+        or any(finding.status == "FAIL" for finding in merged_findings)
+    )
+
+    has_clarification = (
+        deterministic_report.overall_status == "NEEDS_CLARIFICATION"
+        or semantic_status == "NEEDS_CLARIFICATION"
+        or bool(clarification_items)
+        or any(
+            finding.status == "NEEDS_CLARIFICATION"
+            for finding in merged_findings
+        )
+    )
+
+    if has_failure:
+        overall_status = "FAIL"
+
+    elif has_clarification:
+        overall_status = "NEEDS_CLARIFICATION"
+
+    else:
+        overall_status = "PASS"
+
+    # If the semantic agent reports a non-PASS status without findings,
+    # preserve that status in the merged report.
+    if semantic_status == "FAIL" and not any(
+        finding.status == "FAIL"
+        for finding in semantic_findings
+    ):
+        merged_findings.append(
+            ValidationFinding(
+                rule_name="semantic_validation",
+                status="FAIL",
+                message=(
+                    "Semantic validation reported FAIL. "
+                    "Review the semantic validation result."
+                ),
+                details=[],
+            )
+        )
+
+    elif semantic_status == "NEEDS_CLARIFICATION" and not any(
+        finding.status == "NEEDS_CLARIFICATION"
+        for finding in semantic_findings
+    ) and not clarification_items:
+        merged_findings.append(
+            ValidationFinding(
+                rule_name="semantic_validation",
+                status="NEEDS_CLARIFICATION",
+                message=(
+                    "Semantic validation requires clarification."
+                ),
+                details=[],
+            )
+        )
+
+    return PolicyValidationReport(
+        overall_status=overall_status,
+        coverage_score=deterministic_report.coverage_score,
+        missing_requirements=missing_requirements,
+        findings=merged_findings,
+        clarification_items=clarification_items,
+    )
+
+

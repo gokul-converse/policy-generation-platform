@@ -17,23 +17,34 @@ if str(BACKEND_DIR) not in sys.path:
 
 
 import app.models  # noqa: E402, F401
-from app.db.session import DATABASE_PATH, Base  # noqa: E402
+from app.db.session import DATABASE_URL, Base
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# Use the exact same SQLite database file as the application.
-database_url = f"sqlite+aiosqlite:///{DATABASE_PATH.as_posix()}"
+# # Use the exact same SQLite database file as the application.
+# database_url = f"sqlite+aiosqlite:///{DATABASE_PATH.as_posix()}"
+# config.set_main_option(
+#     "sqlalchemy.url",
+#     database_url.replace("%", "%%"),
+# )
+
+# Use the same active database URL as the application.
 config.set_main_option(
     "sqlalchemy.url",
-    database_url.replace("%", "%%"),
+    DATABASE_URL.replace("%", "%%"),
 )
 
 # All SQLAlchemy models must be imported before migrations run.
 target_metadata = Base.metadata
+def include_object(object, name, type_, reflected, compare_to):
+    """Exclude SQLite FTS5 internal tables from Alembic autogeneration."""
+    if type_ == "table" and name and name.startswith("document_chunks_fts"):
+        return False
 
+    return True
 
 def run_migrations_offline() -> None:
     """Run migrations without opening a database connection."""
@@ -43,7 +54,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
-        render_as_batch=True,
+        render_as_batch=DATABASE_URL.startswith("sqlite"),
     )
 
     with context.begin_transaction():
@@ -56,15 +67,15 @@ def do_run_migrations(connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
-        render_as_batch=True,
+        render_as_batch=DATABASE_URL.startswith("sqlite"),
+        include_object=include_object,  # Add this
     )
 
     with context.begin_transaction():
         context.run_migrations()
 
-
 async def run_async_migrations() -> None:
-    """Create an asynchronous connection for SQLite migrations."""
+    """Create an asynchronous connection for database migrations."""
     connectable = async_engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
