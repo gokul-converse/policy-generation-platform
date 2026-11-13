@@ -197,23 +197,46 @@ async def update_policy_version_status(
     version: int,
     new_status: str,
 ) -> PolicyVersion | None:
-    """Update a policy version status within the current transaction."""
+    """Update a version and maintain the policy approval lifecycle."""
 
-    version_record = await get_policy_version(
-        session,
-        policy_id,
-        version,
-    )
+    policy = await get_policy_by_id(session, policy_id)
 
-    if version_record is None:
+    if policy is None:
         return None
 
-    version_record.status = new_status
+    target_version = next(
+        (
+            item
+            for item in policy.versions
+            if item.version == version
+        ),
+        None,
+    )
+
+    if target_version is None:
+        return None
+
+    if new_status == "active":
+        # Supersede any previously active version.
+        for version_record in policy.versions:
+            if (
+                version_record.id != target_version.id
+                and version_record.status == "active"
+            ):
+                version_record.status = "superseded"
+
+        # Activate the selected version.
+        target_version.status = "active"
+
+        # Update the overall policy lifecycle.
+        policy.status = "active"
+
+    else:
+        target_version.status = new_status
 
     await session.flush()
 
-    return version_record
-
+    return target_version
 
 async def update_policy_status(
     session: AsyncSession,

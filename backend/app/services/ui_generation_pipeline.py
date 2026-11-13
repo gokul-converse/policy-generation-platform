@@ -1,8 +1,9 @@
+"""Generate UI definitions and validate them against the policy UI contract."""
 
+import json
 import logging
 import time
 
-import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -19,8 +20,10 @@ SCHEMA_PATH = BACKEND_DIR / "ui_contracts" / "policy-ui-contract.schema.json"
 
 MAX_REPAIR_ATTEMPTS = 2
 
+
 @lru_cache(maxsize=1)
-def load_schema() -> dict:
+def load_schema() -> dict[str, Any]:
+    """Load, validate, and cache the authoritative UI JSON Schema."""
     with SCHEMA_PATH.open(encoding="utf-8") as file:
         schema = json.load(file)
 
@@ -28,7 +31,10 @@ def load_schema() -> dict:
     return schema
 
 
-def validate_output(output: Any, validator) -> list[str]:
+def validate_output(
+    output: Any, validator: Draft202012Validator
+) -> list[str]:
+    """Return readable schema errors, including a root-level type error."""
     if not isinstance(output, dict):
         return ["<root>: output must be a JSON object"]
 
@@ -45,6 +51,7 @@ def validate_output(output: Any, validator) -> list[str]:
 
 
 def parse_json(raw_output: str) -> tuple[Any | None, list[str]]:
+    """Parse model output, returning either its value or a parse error."""
     try:
         return json.loads(raw_output), []
     except (json.JSONDecodeError, TypeError) as exc:
@@ -54,7 +61,13 @@ def parse_json(raw_output: str) -> tuple[Any | None, list[str]]:
 async def generate_validated_ui(
     policy_text: str,
     request_id: str = "unknown",
-) -> dict:
+) -> dict[str, Any]:
+    """Generate schema-valid UI JSON, repairing invalid output when possible.
+
+    The initial generation is followed by at most ``MAX_REPAIR_ATTEMPTS``
+    repair attempts. Raises ``ValueError`` if the final output is invalid;
+    provider and schema-loading errors are allowed to propagate.
+    """
     pipeline_started = time.perf_counter()
 
     logger.info("[%s] Pipeline started", request_id)

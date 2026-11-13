@@ -162,9 +162,8 @@ async def generate_and_save_skills(
     requirement_id: str,
     source_requirement_version_id: str | None = None,
 ) -> list[dict]:
-    """Generate skills from a confirmed requirement and save them."""
+    """Generate, validate, and save skills from a confirmed requirement."""
 
-    # Validate the identifiers.
     if not session_id or not session_id.strip():
         raise ValueError("A valid session_id is required.")
 
@@ -174,8 +173,7 @@ async def generate_and_save_skills(
     session_id = session_id.strip()
     requirement_id = requirement_id.strip()
 
-    # Load the requirement from requirement_versions.requirements_json.
-    # The adapter verifies the session, requirement, and snapshot status.
+    # Load the confirmed requirement and its exact source version.
     requirements, domain, _purpose = await load_single_requirement(
         session=session,
         requirement_id=requirement_id,
@@ -188,7 +186,6 @@ async def generate_and_save_skills(
             f"No confirmed requirement found for {requirement_id!r}."
         )
 
-    # Keep the exact version used to generate the skills.
     loaded_version_id = requirements[0].source_version_id
 
     if not loaded_version_id:
@@ -206,43 +203,24 @@ async def generate_and_save_skills(
         domain,
     )
 
-    # Generate skills using the complete confirmed requirement JSON.
-    try:
-        skill_set: GeneratedSkillSet = await generate_skills(requirements)
-    except Exception:
-        logger.exception(
-            "Skill generation failed for requirement_id=%s, session_id=%s.",
-            requirement_id,
-            session_id,
-        )
-        raise
+    # generate_skills returns only after structural and semantic PASS.
+    # Clarification or validation failure stops execution here.
+    skill_set: GeneratedSkillSet = await generate_skills(requirements)
 
-    # Save skills with the exact confirmed requirement version.
-    try:
-        saved_skills = await save_skill_set(
-            session=session,
-            skill_set=skill_set,
-            source_requirement_version_id=loaded_version_id,
-        )
-    except Exception:
-        logger.exception(
-            "Saving generated skills failed for requirement_id=%s, "
-            "session_id=%s.",
-            requirement_id,
-            session_id,
-        )
-        raise
+    # Persist only validated skills.
+    saved_skills = await save_skill_set(
+        session=session,
+        skill_set=skill_set,
+        source_requirement_version_id=loaded_version_id,
+    )
 
-    # Build the API response.
     results: list[dict] = []
 
     for skill in saved_skills:
         if not skill.versions:
-            logger.warning(
-                "Saved skill '%s' has no version records.",
-                skill.name,
+            raise RuntimeError(
+                f"Saved skill '{skill.name}' has no version records."
             )
-            continue
 
         latest_version = max(
             skill.versions,
@@ -263,8 +241,12 @@ async def generate_and_save_skills(
             }
         )
 
-    return results
+    if len(results) != len(saved_skills):
+        raise RuntimeError(
+            "The saved skill response does not contain every skill."
+        )
 
+    return results
 
 # Keep the previous function name for existing callers.
 save_generated_skills = generate_and_save_skills
