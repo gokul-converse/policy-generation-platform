@@ -1,6 +1,7 @@
 
 """Session and conversation persistence for requirement gathering."""
 
+import json
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -11,6 +12,40 @@ from app.models.requirement_db import (
     ConversationMessage,
     RequirementSession,
 )
+
+
+def _format_conversation_message(message: ConversationMessage) -> str:
+    """Format stored conversation messages for readable context in agent prompts."""
+    sender = message.sender_type
+
+    if sender == "user":
+        return f"User: {message.content}"
+
+    if sender == "agent":
+        try:
+            payload = json.loads(message.content)
+            if isinstance(payload, dict):
+                if payload.get("status") == "needs_clarification":
+                    question = payload.get("question") or ""
+                    return f"Analyst (Question): {question}"
+                elif payload.get("status") == "ready_for_confirmation":
+                    draft = payload.get("draft") or {}
+                    pname = draft.get("policy_name") or "Requirement Draft"
+                    rules_str = "; ".join(draft.get("rules") or [])
+                    unresolved_str = "; ".join(draft.get("unresolved_details") or [])
+                    return (
+                        f"Analyst (Draft): {pname} | "
+                        f"Confirmed Rules: [{rules_str}] | "
+                        f"Unresolved: [{unresolved_str}]"
+                    )
+        except Exception:
+            pass
+        return f"Analyst: {message.content}"
+
+    if sender == "system":
+        return "System: Initial requirement context gathered."
+
+    return f"{sender}: {message.content}"
 
 
 async def create_or_get_session(
@@ -93,7 +128,7 @@ async def get_conversation_history(session_id: str) -> str:
         messages = result.scalars().all()
 
         return "\n".join(
-            f"{message.sender_type}: {message.content}"
+            _format_conversation_message(message)
             for message in messages
         )
 
