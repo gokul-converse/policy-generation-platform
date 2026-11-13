@@ -1,113 +1,194 @@
+"""Extract the initial requirement, then retrieve supporting context."""
+from __future__ import annotations
 
-"""Gather generic requirements using the shared Foundry client."""
-
+import asyncio
 import json
+import logging
+import re
+from typing import Any
 
 from agent_framework import Message
 from pydantic import ValidationError
 
 from app.agents.requirement.prompts.gathering_prompt import GATHERING_PROMPT
-from app.agents.requirement.tools.evidence_retrieval_tool import (
-    evidence_retrieval_tool,
-)
+from app.agents.requirement.tools.evidence_retrieval_tool import evidence_retrieval_tool
 from app.clients.foundry_client import get_foundry_client
-from app.schemas.requirements import GatheringResult
+from app.schemas.requirements import GatheringResult, RequirementDetails
+from app.services.requirement_reference_service import retrieve_verified_reference_data
+
+logger = logging.getLogger(__name__)
+
+_PLACEHOLDER_PHRASES = (
+    "shall define",
+    "should define",
+    "must define",
+    "shall specify",
+    "should specify",
+    "must specify",
+    "shall cover",
+    "should cover",
+    "must cover",
+    "needs to define",
+    "needs to specify",
+    "to be determined",
+    "to be decided",
+    "to be confirmed",
+    "to be defined",
+    "to be clarified",
+    "to be finalized",
+    "to be resolved",
+    "tbd",
+    "will be defined",
+    "will be specified",
+    "will be determined",
+    "shall be determined",
+    "shall be decided",
+    "as per company policy",
+    "as per policy",
+    "per policy",
+)
+
+
+def _extract_json_block(text: str) -> str:
+    """Extract clean JSON object from model response, stripping markdown code fences."""
+    raw = (text or "").strip()
+    match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", raw, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    first_brace = raw.find("{")
+    last_brace = raw.rfind("}")
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        return raw[first_brace : last_brace + 1].strip()
+    return raw
+
+
+def _retrieval_domain(domain: str | None) -> str | None:
+    """Normalise familiar labels while allowing arbitrary domain names."""
+    value = re.sub(r"\s+", " ", (domain or "").strip().casefold())
+    if not value or value == "general":
+        return None
+    if value == "hr" or "human resource" in value:
+        return "hr"
+    if "finance" in value or "account" in value:
+        return "finance"
+    if "security" in value or value.startswith("it "):
+        return "it_security"
+    return re.sub(r"[^a-z0-9]+", "_", value).strip("_") or None
+
+
+def _build_retrieval_query(description: str, requirements: RequirementDetails) -> str:
+    """Build a compact query from the requirement's meaningful content."""
+    parts = [
+        requirements.policy_name or "",
+        requirements.domain or "",
+        requirements.purpose or "",
+        requirements.scope or "",
+        " ".join(requirements.rules),
+        " ".join(requirements.stakeholders),
+        description,
+    ]
+    query = " ".join(part.strip() for part in parts if part and part.strip())
+    return query[:2500]
+
+
+def _as_dict(item: Any) -> dict[str, Any]:
+    if isinstance(item, dict):
+        return item
+    if hasattr(item, "model_dump"):
+        return item.model_dump()
+    return {"value": str(item)}
+
+
+def _clean_extracted_requirements(req: RequirementDetails) -> RequirementDetails:
+    """
+    Ensure placeholder statements erroneously placed in rules are
+    moved to unresolved_details so rules contain only confirmed decisions.
+    """
+    confirmed_rules: list[str] = []
+    unresolved = list(req.unresolved_details)
+    seen_unresolved = {" ".join(u.casefold().split()) for u in unresolved}
+
+    for rule in req.rules:
+        is_placeholder = any(phrase in rule.casefold() for phrase in _PLACEHOLDER_PHRASES)
+        if is_placeholder:
+            norm_rule = " ".join(rule.casefold().split())
+            if norm_rule not in seen_unresolved:
+                unresolved.append(f"{rule} (unresolved business decision)")
+                seen_unresolved.add(norm_rule)
+        else:
+            confirmed_rules.append(rule)
+
+    return req.model_copy(
+        update={
+            "rules": confirmed_rules,
+            "unresolved_details": unresolved,
+        }
+    )
 
 
 async def gather_requirements(
     description: str,
     conversation_history: str = "",
 ) -> GatheringResult:
-    """Extract requirements from the original request and conversation history."""
+    """Run extraction once for a session's initial request."""
     client = get_foundry_client()
+    prompt = f"""{GATHERING_PROMPT}
 
-    response = await client.get_response(
-        messages=[
-            Message(
-                role="user",
-                contents=[
-                    f"""
-{GATHERING_PROMPT}
-
-Original user request:
+ORIGINAL USER REQUEST:
 {description}
 
-Complete conversation and clarification history:
+COMPLETE CONVERSATION HISTORY:
 {conversation_history or "No previous conversation."}
 
-Return exactly one JSON object with this structure:
-{{
-  "requirements": {{
-    "policy_name": "string or null",
-    "domain": "string containing the best-fit domain label",
-    "purpose": "string or null",
-    "scope": "string or null",
-    "stakeholders": ["string"],
-    "rules": ["string"],
-    "unresolved_details": ["string"]
-  }},
-  "evidence": [],
-  "summary": "string"
-}}
-
-Requirements:
-- Use the exact schema and field types shown above.
-- Use arrays of strings for stakeholders, rules, and unresolved_details.
-- The domain is an open-ended string; do not restrict it to a predefined list.
-- Generate a concise, natural title from the actual requirement.
-- Do not use a fixed domain-to-policy-name mapping or a closed catalogue.
-- Keep thresholds, approval conditions, dates, and detailed rules out
-  of the title unless they are essential to the recognized artifact name.
-- Keep the purpose, scope, stakeholders, rules, and unresolved details
-  separate and consistent.
-- Preserve information from earlier answers unless the user corrects it.
-- Do not treat assumptions or retrieved evidence as user-approved facts.
-- Never invent missing values, organizational rules, or approval limits.
-- Use null for an unknown name, purpose, or scope when the schema permits it.
-- Return valid JSON only, without Markdown fences or extra text.
+Extract the requirement and return the exact JSON contract.
 """
-                ],
-            )
-        ]
+    response = await client.get_response(
+        messages=[Message(role="user", contents=[prompt])]
     )
 
-    raw_text = response.text
+    clean_json = _extract_json_block(response.text)
 
     try:
-        gathered = GatheringResult.model_validate_json(raw_text)
+        gathered = GatheringResult.model_validate_json(clean_json)
     except (ValidationError, ValueError) as exc:
         raise ValueError(
-            "Requirement gathering agent returned invalid JSON or an "
-            f"incompatible schema. Details: {exc}. "
-            f"Raw response: {raw_text[:3000]}"
+            "Gathering Agent returned invalid JSON or an incompatible schema: "
+            f"{exc}. Response: {response.text[:2500]}"
         ) from exc
 
-    requirements = gathered.requirements
+    # Sanitize any placeholder rules into unresolved_details
+    cleaned_req = _clean_extracted_requirements(gathered.requirements)
 
-    evidence_query = " ".join(
-        part.strip()
-        for part in (
-            description,
-            requirements.policy_name or "",
-            requirements.purpose or "",
-            requirements.scope or "",
-            " ".join(requirements.stakeholders),
-            " ".join(requirements.rules),
-            " ".join(requirements.unresolved_details),
-        )
-        if part and part.strip()
+    query = _build_retrieval_query(description, cleaned_req)
+    domain = _retrieval_domain(cleaned_req.domain)
+
+    evidence, references = await asyncio.gather(
+        evidence_retrieval_tool(query=query, domain=domain),
+        retrieve_verified_reference_data(query=query, domain=domain or ""),
     )
 
-    evidence = await evidence_retrieval_tool(
-        query=evidence_query,
-        domain=requirements.domain,
+    evidence_items = [_as_dict(item) for item in evidence]
+    reference_items = [_as_dict(item) for item in references]
+
+    # data_status is a record-quality flag, not proof of policy approval.
+    verified_references = [
+        item for item in reference_items
+        if str(item.get("data_status", "")).casefold() == "verified"
+    ]
+
+    # Reference data is stored for schema compatibility and audit only.
+    # It is NEVER used to populate or infer business rules.
+    requirements = cleaned_req.model_copy(
+        update={"reference_data": verified_references}
     )
 
-    return gathered.model_copy(
-        update={
-            "evidence": [
-                json.dumps(item, ensure_ascii=False)
-                for item in evidence
-            ]
-        }
-    )
+    return gathered.model_copy(update={
+        "requirements": requirements,
+        "evidence": evidence_items,
+        "reference_data": verified_references,
+        "summary": gathered.summary or (
+            f"Extracted {requirements.policy_name or 'the requested requirement'}; "
+            f"identified {len(requirements.rules)} confirmed rules and "
+            f"{len(requirements.unresolved_details)} unresolved items."
+        ),
+    })

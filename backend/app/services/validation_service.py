@@ -9,7 +9,6 @@ from app.models.policy_api import (
 from app.models.skill_api import ValidatedRequirementInput
 from app.services.requirement_adapter import extract_numbers_and_units
 
-
 PLACEHOLDER_PATTERNS = [
     re.compile(r"\[\s*TODO\s*\]", re.IGNORECASE),
     re.compile(r"\[\s*TBD\s*\]", re.IGNORECASE),
