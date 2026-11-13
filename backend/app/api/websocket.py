@@ -2,6 +2,7 @@
 """WebSocket endpoint for requirement gathering conversations."""
 
 import asyncio
+import json
 import logging
 import time
 
@@ -28,8 +29,21 @@ async def requirement_websocket(websocket: WebSocket):
 
     try:
         while True:
+            session_id = None
+            event = None
+
             try:
-                payload = await websocket.receive_json()
+                try:
+                    payload = await websocket.receive_json()
+                except (json.JSONDecodeError, ValueError) as exc:
+                    logger.warning("Invalid JSON received on WebSocket: %s", exc)
+                    await websocket.send_json(
+                        {
+                            "event": "error",
+                            "message": "Invalid JSON payload received.",
+                        }
+                    )
+                    continue
 
                 event = payload.get("event")
                 session_id = payload.get("session_id")
@@ -102,6 +116,7 @@ async def requirement_websocket(websocket: WebSocket):
                     {
                         "event": "error",
                         "message": "Invalid request payload.",
+                        "session_id": session_id,
                         "details": exc.errors(
                             include_input=False,
                             include_url=False,
@@ -120,6 +135,7 @@ async def requirement_websocket(websocket: WebSocket):
                     {
                         "event": "error",
                         "message": str(exc),
+                        "session_id": session_id,
                     }
                 )
 
@@ -135,6 +151,7 @@ async def requirement_websocket(websocket: WebSocket):
                             "An internal error occurred while processing "
                             "the requirement. Check the backend logs."
                         ),
+                        "session_id": session_id,
                     }
                 )
 

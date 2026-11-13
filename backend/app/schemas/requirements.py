@@ -95,6 +95,37 @@ class RequirementDetails(BaseModel):
 
             value["rules"] = normalized
 
+        # Convert unresolved_details objects into readable strings.
+        unresolved = value.get("unresolved_details", [])
+
+        if isinstance(unresolved, list):
+            normalized = []
+
+            for item in unresolved:
+                if isinstance(item, str):
+                    normalized.append(item)
+
+                elif isinstance(item, dict):
+                    topic = item.get("topic")
+                    gap = (
+                        item.get("gap")
+                        or item.get("detail")
+                        or item.get("description")
+                        or item.get("decision")
+                        or item.get("unresolved")
+                    )
+
+                    if topic and gap:
+                        normalized.append(f"{topic}: {gap}")
+                    elif gap:
+                        normalized.append(str(gap))
+                    elif topic:
+                        normalized.append(str(topic))
+                    else:
+                        normalized.append(str(item))
+
+            value["unresolved_details"] = normalized
+
         return value
 
     @model_validator(mode="after")
@@ -150,6 +181,55 @@ class ValidationResult(BaseModel):
     question: str | None = None
     draft: RequirementDetails | None = None
     explanation: str = ""
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_validation_payload(cls, value):
+        if not isinstance(value, dict):
+            return value
+
+        value = value.copy()
+
+        # Normalize missing_details if objects were returned
+        missing = value.get("missing_details", [])
+        if isinstance(missing, list):
+            normalized = []
+            for item in missing:
+                if isinstance(item, str):
+                    clean_item = item.strip()
+                    if clean_item:
+                        normalized.append(clean_item)
+                elif isinstance(item, dict):
+                    gap = (
+                        item.get("gap")
+                        or item.get("detail")
+                        or item.get("description")
+                        or item.get("topic")
+                        or item.get("decision")
+                    )
+                    if gap:
+                        normalized.append(str(gap).strip())
+                    else:
+                        normalized.append(str(item).strip())
+            value["missing_details"] = normalized
+
+        # Ensure question string is trimmed or coerced to None when empty
+        question = value.get("question")
+        if isinstance(question, str):
+            question = question.strip()
+            value["question"] = question or None
+
+        # When status is ready_for_confirmation, ensure question is None
+        if value.get("status") == "ready_for_confirmation":
+            value["question"] = None
+
+        # When status is needs_clarification, ensure draft is None if empty or invalid
+        if value.get("status") == "needs_clarification":
+            draft = value.get("draft")
+            if not draft or draft == {}:
+                value["draft"] = None
+
+        return value
 
     @model_validator(mode="after")
     def validate_result_shape(self):
