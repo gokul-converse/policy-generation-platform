@@ -1,80 +1,144 @@
-"""Search completed document chunks using SQLite FTS5."""
-from __future__ import annotations
+"""Search completed document chunks using PostgreSQL full-text search."""
 
 import re
 
+from app.db.session import AsyncSessionLocal
 from sqlalchemy import text
 
-from app.db.session import AsyncSessionLocal
-
-
 _STOP_WORDS = {
-    "a", "an", "and", "are", "as", "at", "be", "by", "can", "could",
-    "define", "do", "does", "for", "from", "how", "i", "in", "is", "it",
-    "of", "on", "or", "our", "please", "should", "that", "the", "their",
-    "this", "to", "want", "we", "what", "when", "which", "who", "with",
-    "policy", "requirement", "company", "business",
+    "a", "an", "and", "are", "as", "at", "be", "by",
+    "for", "from", "in", "into", "is", "it", "of",
+    "on", "or", "that", "the", "this", "to", "with",
 }
 
 
-def _build_fts_query(query: str, max_terms: int = 18) -> str:
-    tokens = re.findall(r"[a-zA-Z0-9_]+", (query or "").casefold())
-    unique = list(dict.fromkeys(
+def _build_search_query(query: str, max_terms: int = 18) -> str:
+    """Build a PostgreSQL web-search query from user input.
+
+    OR is retained to provide behaviour similar to the previous
+    FTS5 query, which searched for any matching term.
+    """
+    tokens = re.findall(r"[a-zA-Z0-9_]+", query.casefold())
+
+    filtered_tokens = [
         token for token in tokens
-        if len(token) > 2 and token not in _STOP_WORDS
-    ))
-    return " OR ".join(f'"{token}"' for token in unique[:max_terms])
+        if token not in _STOP_WORDS
+    ][:max_terms]
+
+    if not filtered_tokens:
+        return ""
+
+    return " OR ".join(filtered_tokens)
 
 
 async def _search(
-    fts_query: str,
+    search_query: str,
     domains: list[str] | None,
     limit: int,
 ) -> list[dict]:
+    """Execute PostgreSQL full-text search against document chunks."""
+
+    params: dict = {
+        "query": search_query,
+        "limit": limit,
+    }
+
     domain_clause = ""
-    params = {"query": fts_query, "limit": max(1, min(limit, 20))}
 
     if domains:
-        placeholders = []
+        domain_params = []
+
         for index, domain in enumerate(domains):
-            key = f"domain_{index}"
-            placeholders.append(f":{key}")
-            params[key] = domain
-        domain_clause = f"AND lower(d.domain) IN ({', '.join(placeholders)})"
+            param_name = f"domain_{index}"
+            domain_params.append(f":{param_name}")
+            params[param_name] = domain.casefold()
 
-    sql = text(f"""
-        SELECT d.document_id, d.document_name, d.domain, d.version,
-               d.approval_status, d.ingestion_status,
-               c.chunk_id, c.section_title, c.page_number, c.chunk_text
-        FROM document_chunks_fts
-        JOIN document_chunks c
-          ON c.chunk_id = document_chunks_fts.rowid
-        JOIN documents d
-          ON d.document_id = c.document_id
-        WHERE document_chunks_fts MATCH :query
-          AND lower(d.ingestion_status) = 'completed'
-          {domain_clause}
-        ORDER BY bm25(document_chunks_fts)
+        domain_clause = (
+            f"AND lower(d.domain) IN ({', '.join(domain_params)})"
+        )
+
+    sql = text(
+        f"""
+        SELECT
+            d.document_id,
+            d.document_name,
+            d.domain,
+            d.version,
+            d.approval_status,
+            d.ingestion_status,
+            c.chunk_id,
+            c.section_title,
+            c.page_number,
+            c.chunk_text,
+            ts_rank(
+                (
+                    setweight(
+                        to_tsvector(
+                            'english',
+                            coalesce(c.section_title, '')
+                        ),
+                        'A'
+                    )
+                    ||
+                    setweight(
+                        to_tsvector(
+                            'english',
+                            coalesce(c.chunk_text, '')
+                        ),
+                        'B'
+                    )
+                ),
+                websearch_to_tsquery('english', :query)
+            ) AS relevance_score
+        FROM document_chunks AS c
+        JOIN documents AS d
+            ON d.document_id = c.document_id
+        WHERE
+            (
+                setweight(
+                    to_tsvector(
+                        'english',
+                        coalesce(c.section_title, '')
+                    ),
+                    'A'
+                )
+                ||
+                setweight(
+                    to_tsvector(
+                        'english',
+                        coalesce(c.chunk_text, '')
+                    ),
+                    'B'
+                )
+            ) @@ websearch_to_tsquery('english', :query)
+            AND lower(d.ingestion_status) = 'completed'
+            {domain_clause}
+        ORDER BY relevance_score DESC
         LIMIT :limit
-    """)
+        """
+    )
 
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(sql, params)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(sql, params)
         rows = result.mappings().all()
 
-    return [{
-        "source_type": "document",
-        "document_id": row["document_id"],
-        "document_name": row["document_name"],
-        "domain": row["domain"],
-        "version": row["version"],
-        "approval_status": row["approval_status"],
-        "ingestion_status": row["ingestion_status"],
-        "chunk_id": row["chunk_id"],
-        "section_title": row["section_title"],
-        "page_number": row["page_number"],
-        "evidence_text": row["chunk_text"],
-    } for row in rows]
+    return [
+        {
+            "source_type": "document",
+            "document_id": row["document_id"],
+            "document_name": row["document_name"],
+            "domain": row["domain"],
+            "version": row["version"],
+            "approval_status": row["approval_status"],
+            "ingestion_status": row["ingestion_status"],
+            "chunk_id": row["chunk_id"],
+            "section_title": row["section_title"],
+            "page_number": row["page_number"],
+            "evidence_text": row["chunk_text"],
+            "relevance_score": row["relevance_score"],
+        }
+        for row in rows
+    ]
 
 
 async def search_requirement_evidence(
@@ -82,23 +146,32 @@ async def search_requirement_evidence(
     domain: str | None = None,
     limit: int = 5,
 ) -> list[dict]:
-    """
-    Prefer same-domain and general documents. Fall back to cross-domain
-    evidence only when the preferred search returns no matches.
-    Approval status is returned as metadata, never inferred here.
-    """
-    fts_query = _build_fts_query(query)
-    if not fts_query:
+    """Search policy evidence, prioritizing the requested domain."""
+
+    search_query = _build_search_query(query)
+
+    if not search_query:
         return []
 
-    safe_limit = max(1, min(limit, 20))
-    if domain:
-        matches = await _search(
-            fts_query,
-            [domain.casefold(), "general"],
-            safe_limit,
-        )
-        if matches:
-            return matches
+    limit = max(1, min(limit, 20))
 
-    return await _search(fts_query, None, safe_limit)
+    if domain:
+        preferred_domains = [
+            domain.casefold(),
+            "general",
+        ]
+
+        results = await _search(
+            search_query=search_query,
+            domains=preferred_domains,
+            limit=limit,
+        )
+
+        if results:
+            return results
+
+    return await _search(
+        search_query=search_query,
+        domains=None,
+        limit=limit,
+    )

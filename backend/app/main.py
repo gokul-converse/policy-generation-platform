@@ -12,7 +12,7 @@ from app.api.skills import router as skills_router
 from app.api.ui_generation import ui_generation_router
 from app.api.websocket import router as requirement_websocket_router
 from app.common.logger import setup_logging
-from app.db.session import dispose_db_engine,  engine, initialize_fts
+from app.db.session import dispose_db_engine, engine, initialize_fts
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -23,13 +23,21 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     """Initialize database-specific search support and clean up."""
 
     try:
-        if engine.dialect.name == "sqlite":
+        if engine.dialect.name == "postgresql":
             await initialize_fts()
-            logger.info("SQLite FTS5 initialization completed.")
-
-        elif engine.dialect.name == "postgresql":
             logger.info(
-                "PostgreSQL selected. SQLite FTS5 initialization skipped."
+                "PostgreSQL full-text search index initialized."
+            )
+
+        elif engine.dialect.name == "sqlite":
+            logger.warning(
+                "SQLite detected. PostgreSQL full-text search "
+                "initialization skipped."
+            )
+
+        else:
+            raise RuntimeError(
+                f"Unsupported database dialect: {engine.dialect.name}"
             )
 
         yield
@@ -41,7 +49,6 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     finally:
         await dispose_db_engine()
         logger.info("Database engine disposed.")
-
 
 app = FastAPI(
     title="Policy Generation API",
