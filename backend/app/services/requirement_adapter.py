@@ -4,11 +4,9 @@ import json
 import re
 from typing import Any
 
+from app.models.skill_api import ValidatedRequirementInput
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.models.skill_api import ValidatedRequirementInput
-
 
 NUMERIC_PATTERN = re.compile(
     r"""
