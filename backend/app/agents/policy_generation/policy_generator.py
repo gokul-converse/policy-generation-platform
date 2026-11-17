@@ -65,11 +65,12 @@ class StructuredPolicyGenerationOutput(BaseModel):
 # Skill provider construction
 # ============================================================================
 
+
 def create_policy_skills_provider(
     selected_skill_version_ids: list[UUID] | None = None,
     session_factory: async_sessionmaker[AsyncSession] | None = None,
 ) -> SkillsProvider:
-    """Load only selected generated skill versions from the database."""
+    """Load selected generated skill versions from the database."""
 
     selected_versions = list(
         dict.fromkeys(selected_skill_version_ids or [])
@@ -84,6 +85,7 @@ def create_policy_skills_provider(
             skill_paths=[],
             disable_load_skill_approval=True,
             disable_read_skill_resource_approval=True,
+            disable_run_skill_script_approval=True,
         )
 
     if session_factory is None:
@@ -100,6 +102,7 @@ def create_policy_skills_provider(
         database_source,
         disable_load_skill_approval=True,
         disable_read_skill_resource_approval=True,
+        disable_run_skill_script_approval=True,
     )
 
 
@@ -450,6 +453,8 @@ def _validate_policy_generation_output(
 # ============================================================================
 
 
+
+
 async def generate_policy_from_skill(
     selected_skill_version_ids: list[UUID],
     custom_title: str | None = None,
@@ -516,7 +521,6 @@ async def generate_policy_from_skill(
                         ),
                     }
                 )
-
         else:
             requirement_coverage_checklist.append(
                 {
@@ -570,6 +574,58 @@ responsibilities, timelines, and approval rules.
 
 Do not invent unsupported business rules.
 
+## STRICT NUMERIC PRESERVATION
+
+Preserve every numeric value exactly as specified in the
+Source Requirements.
+
+Preserve the original:
+- Numeric values
+- Units of measurement
+- Frequencies
+- Durations
+- Percentages
+- Thresholds
+- Timelines
+- Conditions and applicability
+
+Never calculate, derive, round, normalize, or convert a
+numeric value from another source value.
+
+Do not assume that one numeric value should be mathematically
+recalculated based on another value.
+
+For example, if the Source Requirements specify:
+- Annual allocation: 15 days per year
+- Monthly accrual: 1 day per month
+
+Preserve both values exactly.
+
+Do not calculate the monthly accrual as 1.25 days.
+
+If numeric values appear inconsistent or ambiguous, preserve
+the original values and record the ambiguity in unresolved_items.
+Do not silently correct the Source Requirements.
+
+## POLICY CONTENT CONSOLIDATION
+
+Represent each business rule in one appropriate,
+authoritative policy section.
+
+Consolidate overlapping or repeated content without removing
+any unique requirement.
+
+Do not unnecessarily repeat the same:
+- Allocation rules
+- Accrual rules
+- Approval rules
+- Carry-forward rules
+- Cancellation rules
+- Eligibility conditions
+
+Do not remove unique conditions, exceptions, responsibilities,
+restrictions, or numeric values during consolidation.
+
 ## REQUIREMENT COVERAGE CHECKLIST
 
 The generation input contains a dynamically generated
@@ -584,6 +640,7 @@ in a policy section.
 Every substantive rule must be represented in policy content.
 
 In particular:
+
 - Preserve all scope statements.
 - Preserve numeric limits explicitly.
 - Preserve approval conditions explicitly.
@@ -609,6 +666,7 @@ unresolved_items.
 
 Additional generation guidance must not override
 Source Requirements or introduce unsupported business rules.
+
 """
     )
 
@@ -646,7 +704,9 @@ Source Requirements or introduce unsupported business rules.
             "Use the supplied Source Requirements as the authoritative "
             "business-rule source. Follow the requirement coverage "
             "checklist to preserve every substantive requirement. "
-            "Do not introduce unsupported requirements."
+            "Preserve all numeric values exactly without recalculation. "
+            "Consolidate repeated rules without removing unique "
+            "requirements. Do not introduce unsupported requirements."
         ),
     }
 
@@ -667,6 +727,27 @@ Source Requirements or introduce unsupported business rules.
         "field instead of a rules list.\n\n"
 
         "Do not replace a specific numeric limit with vague wording.\n\n"
+
+        "STRICT NUMERIC PRESERVATION:\n"
+        "Preserve every annual allocation, monthly accrual, "
+        "duration, threshold, percentage, frequency, and timeline "
+        "exactly as specified in Source Requirements.\n"
+        "Never calculate, derive, round, convert, or normalize a "
+        "numeric value from another source value.\n"
+        "For example, if the source specifies 15 days per year "
+        "and 1 day per month, preserve both values exactly. "
+        "Do not change the monthly value to 1.25 days.\n"
+        "If values appear inconsistent, preserve the source values "
+        "and report the ambiguity in unresolved_items.\n\n"
+
+        "POLICY CONTENT CONSOLIDATION:\n"
+        "Represent each business rule in one appropriate "
+        "authoritative section.\n"
+        "Consolidate overlapping content without removing "
+        "any unique requirement, condition, exception, "
+        "responsibility, or numeric value.\n"
+        "Avoid repeating the same allocation, accrual, "
+        "approval, or carry-forward rules in multiple sections.\n\n"
 
         "For every source requirement, ensure the generated policy "
         "explicitly represents all its substantive statements.\n\n"
@@ -701,27 +782,121 @@ Source Requirements or introduce unsupported business rules.
 
     # 10. Execute policy generation.
     result = await agent.run(prompt)
+    
+    # Check for pending tool approval requests.
+    pending_requests = (
+        getattr(result, "user_input_requests", None) or []
+    )
 
-    # 11. Parse structured output.
-    if getattr(result, "value", None) is not None:
+    for request in pending_requests:
+        function_call = getattr(
+            request,
+            "function_call",
+            None,
+        )
+
+        logger.error(
+            "Pending tool approval detected: tool=%s arguments=%s",
+            getattr(function_call, "name", None),
+            getattr(function_call, "arguments", None),
+        )
+
+    
+    # 11. Parse structured output
+
+    response_value = getattr(result, "value", None)
+    result_text = getattr(result, "text", None)
+
+    policy_output = None
+
+    # First: structured response
+    if response_value is not None:
         policy_output = (
             StructuredPolicyGenerationOutput.model_validate(
-                result.value
+                response_value
             )
         )
-    else:
-        result_text = getattr(result, "text", None)
 
-        if not result_text:
-            raise ValueError(
-                "Policy generation agent returned no structured output."
-            )
-
+    # Second: direct response text
+    elif isinstance(result_text, str) and result_text.strip():
         policy_output = (
             StructuredPolicyGenerationOutput.model_validate_json(
                 result_text
             )
         )
+
+    # Third: inspect assistant messages
+    else:
+        messages = getattr(result, "messages", None) or []
+
+        for message in reversed(messages):
+            role = getattr(message, "role", None)
+
+            if role and str(role).lower() not in ("assistant", "agent"):
+                continue
+
+            message_text = getattr(message, "text", None)
+
+            if isinstance(message_text, str) and message_text.strip():
+                policy_output = (
+                    StructuredPolicyGenerationOutput.model_validate_json(
+                        message_text
+                    )
+                )
+                break
+
+            contents = getattr(message, "contents", None) or []
+
+            for content in contents:
+                content_text = getattr(content, "text", None)
+
+                if (
+                    isinstance(content_text, str)
+                    and content_text.strip()
+                ):
+                    try:
+                        policy_output = (
+                            StructuredPolicyGenerationOutput
+                            .model_validate_json(content_text)
+                        )
+                        break
+                    except Exception:
+                        logger.debug(
+                            "Assistant content is not structured policy JSON."
+                        )
+
+            if policy_output is not None:
+                break
+
+    if policy_output is None:
+        messages = getattr(result, "messages", None) or []
+
+        diagnostics = [
+            {
+                "role": getattr(message, "role", None),
+                "message_type": type(message).__name__,
+                "content_types": [
+                    getattr(content, "type", None)
+                    for content in (
+                        getattr(message, "contents", None) or []
+                    )
+                ],
+            }
+            for message in messages
+        ]
+
+        logger.error(
+            "Policy generation returned no structured output. "
+            "Response type=%s, diagnostics=%s",
+            type(result).__name__,
+            diagnostics,
+        )
+
+        raise ValueError(
+            "Policy generation returned no structured output. "
+            "Check response diagnostics."
+        )
+
 
     # 12. Apply explicitly supplied policy metadata.
     if custom_title:
@@ -752,4 +927,3 @@ Source Requirements or introduce unsupported business rules.
     )
 
     return policy_output
-

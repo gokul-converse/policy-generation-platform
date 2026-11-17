@@ -1,7 +1,8 @@
 """Services for generating, saving, and retrieving skills."""
 
 from pathlib import Path
-from uuid import UUID
+from time import perf_counter
+from uuid import UUID, uuid4
 
 import yaml
 from app.agents.policy_generation.skill_generation import generate_skills
@@ -164,24 +165,60 @@ async def generate_and_save_skills(
 ) -> list[dict]:
     """Generate, validate, and save skills from a confirmed requirement."""
 
+    workflow_id = uuid4().hex[:12]
+    workflow_started = perf_counter()
+
     if not session_id or not session_id.strip():
+        logger.warning(
+            "[%s] Skill generation rejected: session_id is empty.",
+            workflow_id,
+        )
         raise ValueError("A valid session_id is required.")
 
     if not requirement_id or not requirement_id.strip():
+        logger.warning(
+            "[%s] Skill generation rejected: requirement_id is empty.",
+            workflow_id,
+        )
         raise ValueError("A valid requirement_id is required.")
 
     session_id = session_id.strip()
     requirement_id = requirement_id.strip()
 
-    # Load the confirmed requirement and its exact source version.
-    requirements, domain, _purpose = await load_single_requirement(
-        session=session,
-        requirement_id=requirement_id,
-        session_id=session_id,
-        source_requirement_version_id=source_requirement_version_id,
+    logger.info(
+        "[%s] Skill generation started: session_id=%s requirement_id=%s.",
+        workflow_id,
+        session_id,
+        requirement_id,
     )
 
+    # Load the confirmed requirement and its exact source version.
+    load_started = perf_counter()
+    try:
+        requirements, _domain, _purpose = await load_single_requirement(
+            session=session,
+            requirement_id=requirement_id,
+            session_id=session_id,
+            source_requirement_version_id=source_requirement_version_id,
+        )
+    except Exception:
+        logger.exception(
+            "[%s] Failed to load confirmed requirements: "
+            "session_id=%s requirement_id=%s.",
+            workflow_id,
+            session_id,
+            requirement_id,
+        )
+        raise
+
     if not requirements:
+        logger.warning(
+            "[%s] No confirmed requirements found: "
+            "session_id=%s requirement_id=%s.",
+            workflow_id,
+            session_id,
+            requirement_id,
+        )
         raise ValueError(
             f"No confirmed requirement found for {requirement_id!r}."
         )
@@ -189,35 +226,87 @@ async def generate_and_save_skills(
     loaded_version_id = requirements[0].source_version_id
 
     if not loaded_version_id:
+        logger.error(
+            "[%s] Confirmed requirement has no source version: "
+            "session_id=%s requirement_id=%s.",
+            workflow_id,
+            session_id,
+            requirement_id,
+        )
         raise ValueError(
             "The confirmed requirement version ID is missing. "
             "Cannot save skills without source version traceability."
         )
 
     logger.info(
-        "Generating skills for requirement_id=%s, session_id=%s, "
-        "source_version_id=%s, domain=%s.",
-        requirement_id,
-        session_id,
+        "[%s] Confirmed requirements loaded: count=%d "
+        "source_version_id=%s duration_seconds=%.2f.",
+        workflow_id,
+        len(requirements),
         loaded_version_id,
-        domain,
+        perf_counter() - load_started,
     )
 
     # generate_skills returns only after structural and semantic PASS.
     # Clarification or validation failure stops execution here.
-    skill_set: GeneratedSkillSet = await generate_skills(requirements)
+    generation_started = perf_counter()
+    try:
+        skill_set: GeneratedSkillSet = await generate_skills(requirements)
+    except Exception:
+        logger.exception(
+            "[%s] Skill generation or validation failed: "
+            "requirement_id=%s source_version_id=%s "
+            "duration_seconds=%.2f.",
+            workflow_id,
+            requirement_id,
+            loaded_version_id,
+            perf_counter() - generation_started,
+        )
+        raise
+
+    logger.info(
+        "[%s] Skill generation and validation passed: "
+        "skill_count=%d duration_seconds=%.2f.",
+        workflow_id,
+        len(skill_set.skills),
+        perf_counter() - generation_started,
+    )
 
     # Persist only validated skills.
-    saved_skills = await save_skill_set(
-        session=session,
-        skill_set=skill_set,
-        source_requirement_version_id=loaded_version_id,
+    persistence_started = perf_counter()
+    try:
+        saved_skills = await save_skill_set(
+            session=session,
+            skill_set=skill_set,
+            source_requirement_version_id=loaded_version_id,
+        )
+    except Exception:
+        logger.exception(
+            "[%s] Failed to persist validated skills: "
+            "skill_count=%d source_version_id=%s.",
+            workflow_id,
+            len(skill_set.skills),
+            loaded_version_id,
+        )
+        raise
+
+    logger.info(
+        "[%s] Validated skills persisted: saved_count=%d "
+        "duration_seconds=%.2f.",
+        workflow_id,
+        len(saved_skills),
+        perf_counter() - persistence_started,
     )
 
     results: list[dict] = []
 
     for skill in saved_skills:
         if not skill.versions:
+            logger.error(
+                "[%s] Persisted skill has no version records: skill_id=%s.",
+                workflow_id,
+                skill.id,
+            )
             raise RuntimeError(
                 f"Saved skill '{skill.name}' has no version records."
             )
@@ -242,9 +331,27 @@ async def generate_and_save_skills(
         )
 
     if len(results) != len(saved_skills):
+        logger.error(
+            "[%s] Skill response count mismatch: saved=%d response=%d.",
+            workflow_id,
+            len(saved_skills),
+            len(results),
+        )
         raise RuntimeError(
             "The saved skill response does not contain every skill."
         )
+
+    logger.info(
+        "[%s] Skill generation workflow completed: "
+        "session_id=%s requirement_id=%s source_version_id=%s "
+        "saved_count=%d duration_seconds=%.2f.",
+        workflow_id,
+        session_id,
+        requirement_id,
+        loaded_version_id,
+        len(results),
+        perf_counter() - workflow_started,
+    )
 
     return results
 

@@ -528,27 +528,84 @@ def validate_generated_skill_set(
 # ============================================================
 
 
+
 def _build_prompt(
     requirements_json: str,
     validation_error: str | None = None,
     previous_skill_set_json: str | None = None,
 ) -> str:
     """
-    Build the prompt for either initial generation or repair.
+    Build the initial generation or repair prompt.
 
-    Initial generation:
-        Generates skills from validated requirements.
-
-    Repair:
-        Corrects a previous output using structural or
-        semantic validation findings.
-
-    The original requirements are included in both cases
-    so they remain the authoritative source.
+    Authoritative requirements are the only source of business rules.
+    Generated skills must not introduce unspecified technical details.
     """
 
-    if validation_error:
+    common_rules = """
+AUTHORITATIVE REQUIREMENT RULES:
 
+1. The supplied validated requirements are the only source of truth.
+2. Preserve the original business meaning and intent.
+3. Preserve all conditions, exceptions, responsibilities, obligations,
+   scope boundaries, numeric values, dates, durations, and units.
+4. Do not invent additional business rules.
+5. Do not convert a business requirement into an unspecified
+   technical implementation requirement.
+6. Do not invent API payload fields, database columns, UI fields,
+   backend verification steps, integrations, or system workflows.
+7. Do not introduce additional approval levels or responsibilities.
+8. Do not assume how a system internally implements a requirement.
+9. Every instruction must be directly traceable to the supplied
+   authoritative requirements.
+10. If a technical implementation detail is not specified, do not
+    prescribe one.
+
+BUSINESS RULE VS IMPLEMENTATION DETAIL:
+
+Example authoritative requirement:
+"Contract employees and external consultants are excluded unless
+HR approves."
+
+Allowed:
+"Contract employees and external consultants are outside the policy
+scope unless HR approves their inclusion."
+
+Not allowed:
+"Contractor status must be included in the HRMS submission payload."
+
+Not allowed:
+"Implement a contractor verification API."
+
+Not allowed:
+"Create an additional contractor approval workflow."
+
+The requirement establishes a policy scope and an HR exception.
+It does not specify a technical field, API, verification mechanism,
+or additional workflow.
+
+GENERAL INTERPRETATION:
+
+- Explain an existing requirement without changing its meaning.
+- You may organize related instructions into a clear sequence.
+- You may clarify who performs an explicitly assigned responsibility.
+- Do not turn an explanation into a new mandatory action.
+- Do not add technical controls merely because they seem useful.
+- Do not create new obligations from assumptions.
+"""
+
+    mapping_rules = """
+STRICT REQUIREMENT MAPPING:
+
+- Generate exactly one skill for every unique requirement ID.
+- Each skill must reference exactly one requirement ID.
+- Do not combine different requirement IDs.
+- Do not create multiple skills for the same requirement.
+- Do not omit any requirement ID.
+- Do not introduce unknown requirement IDs.
+- Preserve the original requirement IDs and wording.
+"""
+
+    if validation_error:
         previous_output = (
             previous_skill_set_json
             or "No previous generated skill output is available."
@@ -559,37 +616,32 @@ REPAIR THE PREVIOUSLY GENERATED SKILL SET.
 
 The previous output failed validation.
 
-Review:
-1. The original validated requirements.
-2. The previous generated skills.
-3. The validation findings.
-
 PREVIOUS GENERATED SKILL SET:
 {previous_output}
 
 VALIDATION FINDINGS:
 {validation_error}
 
-REPAIR RULES:
+{common_rules}
 
-- Correct every identified validation failure.
-- Preserve valid instructions from the previous output.
-- Do not unnecessarily rewrite valid content.
-- Do not introduce new business rules.
-- Do not change authoritative requirement meaning.
-- Preserve requirement IDs.
-- Preserve original requirement wording.
-- Preserve numeric values, dates, units, conditions,
-  exceptions, obligations, and scope.
+REPAIR INSTRUCTIONS:
 
-STRICT MAPPING RULES:
+1. Read each validation finding carefully.
+2. Identify the exact generated instruction that caused the finding.
+3. Compare that instruction with its authoritative requirement.
+4. Correct the unsupported or inaccurate instruction.
+5. Remove implementation details that are not explicitly required.
+6. Preserve valid instructions from the previous output.
+7. Do not unnecessarily rewrite valid content.
+8. Do not remove legitimate business requirements.
+9. Do not change the original requirement wording.
+10. Do not change numeric values, dates, units, conditions,
+    exceptions, responsibilities, obligations, or scope.
+11. Do not introduce a new rule while repairing an existing one.
+12. If a finding identifies an unsupported technical detail,
+    remove that detail instead of inventing another implementation.
 
-- Generate exactly one skill for each unique requirement ID.
-- Each skill must reference exactly one requirement ID.
-- Do not merge different requirement IDs.
-- Do not create duplicate skills.
-- Do not omit any requirement ID.
-- Do not introduce unknown requirement IDs.
+{mapping_rules}
 
 AUTHORITATIVE VALIDATED REQUIREMENTS:
 {requirements_json}
@@ -602,26 +654,33 @@ GeneratedSkillSet structured output format.
 Generate enterprise-ready, reusable operational Agent Skills
 from the supplied validated requirements.
 
-REQUIREMENT MAPPING:
+{common_rules}
 
-- Generate exactly one skill per unique requirement ID.
-- Each skill must map to exactly one requirement ID.
-- Do not combine multiple requirement IDs into one skill.
-- Do not create multiple skills for the same requirement.
-- Preserve original requirement IDs and meaning.
+{mapping_rules}
 
 SKILL QUALITY:
 
 - Define a clear purpose and scope.
-- Provide actionable, reusable instructions.
+- Provide actionable, reusable instructions based on the requirements.
 - Preserve all supported conditions and constraints.
-- Define responsibility boundaries.
-- Identify prohibited assumptions.
-- Identify unresolved business decisions.
+- Define responsibility boundaries using the supplied responsibilities.
+- Explain the required business process clearly.
+- Identify prohibited assumptions only when supported by the source.
 - Avoid generic and repetitive instructions.
+- Do not add technical implementation recommendations.
+- Do not create additional business obligations.
+
+SKILL STRUCTURE:
+
+- Use the required Markdown headings.
+- Include a clear Purpose section.
+- Include actionable Instructions.
+- Include the original Source Requirements section.
+- Keep the skill understandable and reusable.
 
 Follow the configured company-policy-generator built-in skill
-and the supplied Skill Generator instructions.
+and the supplied Skill Generator instructions, subject to the
+authoritative requirement restrictions above.
 
 AUTHORITATIVE VALIDATED REQUIREMENTS:
 {requirements_json}

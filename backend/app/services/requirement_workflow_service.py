@@ -10,8 +10,8 @@ from time import perf_counter
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import func, select
-
+from app.agents.requirement.requirement_gathering_agent import gather_requirements
+from app.agents.requirement.requirement_validation_agent import validate_requirements
 from app.db.session import AsyncSessionLocal
 from app.models.requirement_db import (
     ClarificationItem,
@@ -20,8 +20,6 @@ from app.models.requirement_db import (
     RequirementSession,
     RequirementVersion,
 )
-from app.agents.requirement.requirement_gathering_agent import gather_requirements
-from app.agents.requirement.requirement_validation_agent import validate_requirements
 from app.schemas.requirements import (
     GatheringResult,
     RequirementDetails,
@@ -34,7 +32,7 @@ from app.services.requirement_session_service import (
     save_message,
     update_session_status,
 )
-
+from sqlalchemy import func, select
 
 # Mandatory clarification limits
 MIN_CLARIFICATION_QUESTIONS = 3

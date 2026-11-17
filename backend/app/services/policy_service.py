@@ -1,8 +1,9 @@
 """Application service for generating, validating, persisting, and modifying enterprise policies."""
 
 import json
+from time import perf_counter
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from app.agents.policy_generation.policy_generator import (
     StructuredPolicyGenerationOutput,
@@ -38,13 +39,70 @@ from app.services.skill_file_service import (
     rebuild_skill_markdown,
     split_skill_markdown,
 )
-from app.services.validation_service import (
-    merge_policy_validation_reports,
-    validate_policy_draft,
-)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = get_logger(__name__)
+
+
+def _build_semantic_validation_report(
+    semantic_report: Any,
+    total_requirements: int,
+) -> PolicyValidationReport:
+    """Adapt semantic validation output to the persisted API report model."""
+    missing_requirements = list(
+        dict.fromkeys(semantic_report.missing_requirements or [])
+    )
+
+    # Semantic output currently has no coverage_score field. Until that
+    # field is added to the semantic output model, derive a conservative
+    # coverage estimate from the requirements explicitly marked missing.
+    if total_requirements > 0:
+        missing_count = min(len(missing_requirements), total_requirements)
+        coverage_score = round(
+            (total_requirements - missing_count) / total_requirements,
+            4,
+        )
+    else:
+        coverage_score = 1.0
+
+    return PolicyValidationReport(
+        overall_status=semantic_report.overall_status,
+        coverage_score=coverage_score,
+        missing_requirements=missing_requirements,
+        findings=semantic_report.findings or [],
+        clarification_items=semantic_report.clarification_items or [],
+    )
+
+
+def _log_validation_summary(
+    workflow_id: str,
+    stage: str,
+    report: Any,
+    duration_seconds: float,
+) -> None:
+    """Log validation status and counts without exposing policy content."""
+    status_counts = {
+        status: sum(
+            finding.status == status
+            for finding in report.findings
+        )
+        for status in ("PASS", "FAIL", "NEEDS_CLARIFICATION")
+    }
+
+    logger.info(
+        "[%s] %s validation completed: status=%s coverage=%s "
+        "findings=%s missing_requirements=%d clarification_items=%d "
+        "duration_seconds=%.2f.",
+        workflow_id,
+        stage,
+        report.overall_status,
+        getattr(report, "coverage_score", None),
+        status_counts,
+        len(report.missing_requirements),
+        len(report.clarification_items),
+        duration_seconds,
+    )
+
 
 VALIDATION_STATUS_MAP = {
     "PASS": "pass",
@@ -290,10 +348,11 @@ async def load_skill_instructions(
         if version_id not in applied_skill_version_ids:
             applied_skill_version_ids.append(version_id)
 
-    logger.info(
-        "Resolved generated skills: skill_ids=%s version_ids=%s",
-        applied_skill_ids,
-        applied_skill_version_ids,
+    logger.debug(
+        "Resolved generated skill references: skill_count=%d "
+        "version_count=%d.",
+        len(applied_skill_ids),
+        len(applied_skill_version_ids),
     )
 
     return (
@@ -371,6 +430,91 @@ async def load_selected_skill_instructions(
         )
 
     return selected_instructions
+
+
+
+
+async def resolve_modification_skill_baseline(
+    session: AsyncSession,
+    skill_id: UUID,
+    policy_linked_skill_version_id: UUID,
+    workflow_id: str,
+) -> SkillVersion:
+    """
+    Resolve the SkillVersion used as the baseline for modification.
+
+    Reuse a newer draft version if a previous modification created
+    one but failed before a new PolicyVersion was saved.
+
+    Otherwise, use the exact SkillVersion linked to the latest
+    PolicyVersion.
+    """
+    skill = await get_skill_by_id(
+        session=session,
+        skill_id=skill_id,
+    )
+
+    if skill is None:
+        raise ValueError(f"Skill '{skill_id}' was not found.")
+
+    if not skill.versions:
+        raise ValueError(
+            f"Skill '{skill_id}' has no saved versions."
+        )
+
+    policy_linked_version = next(
+        (
+            version
+            for version in skill.versions
+            if version.id == policy_linked_skill_version_id
+        ),
+        None,
+    )
+
+    if policy_linked_version is None:
+        raise ValueError(
+            "The SkillVersion referenced by the latest "
+            "PolicyVersion does not belong to the selected skill."
+        )
+
+    newer_draft_versions = [
+        version
+        for version in skill.versions
+        if (
+            version.version > policy_linked_version.version
+            and str(version.status).casefold() == "draft"
+        )
+    ]
+
+    if newer_draft_versions:
+        selected_version = max(
+            newer_draft_versions,
+            key=lambda item: item.version,
+        )
+
+        logger.info(
+            "[%s] Reusing previous unlinked draft SkillVersion: "
+            "skill_id=%s selected_version_id=%s version=%s.",
+            workflow_id,
+            skill_id,
+            selected_version.id,
+            selected_version.version,
+        )
+
+    else:
+        selected_version = policy_linked_version
+
+        logger.info(
+            "[%s] Using PolicyVersion-linked SkillVersion: "
+            "skill_id=%s version_id=%s version=%s.",
+            workflow_id,
+            skill_id,
+            selected_version.id,
+            selected_version.version,
+        )
+
+    return selected_version
+
 
 def _stored_clarification_items(
     version_record: PolicyVersion,
@@ -555,124 +699,224 @@ async def generate_and_save_policy(
 ) -> PolicyResponse:
     """Generate, validate, and persist a policy from a generated skill."""
 
+    workflow_id = uuid4().hex[:12]
+    workflow_started = perf_counter()
+
     # 1. Resolve the generated skill.
     skill_command = normalize_optional_text(request.skill_command)
 
     if not skill_command:
+        logger.warning(
+            "[%s] Policy generation rejected: skill_command is empty.",
+            workflow_id,
+        )
         raise ValueError("Skill command cannot be empty.")
 
-    (
-        _,
-        applied_skill_ids,
-        applied_skill_version_ids,
-    ) = await load_skill_instructions(
-        session=session,
-        skill_command=skill_command,
-        skill_ids=[],
-    )
+    logger.info("[%s] Policy generation started.", workflow_id)
+
+    skill_resolution_started = perf_counter()
+    try:
+        (
+            _,
+            applied_skill_ids,
+            applied_skill_version_ids,
+        ) = await load_skill_instructions(
+            session=session,
+            skill_command=skill_command,
+            skill_ids=[],
+        )
+    except Exception:
+        logger.exception(
+            "[%s] Failed to resolve the requested generated skill.",
+            workflow_id,
+        )
+        raise
 
     if len(applied_skill_ids) != 1 or len(applied_skill_version_ids) != 1:
+        logger.warning(
+            "[%s] Policy generation requires exactly one generated skill; "
+            "resolved skills=%d versions=%d.",
+            workflow_id,
+            len(applied_skill_ids),
+            len(applied_skill_version_ids),
+        )
         raise ValueError(
             "Policy generation requires exactly one generated skill."
         )
 
     skill_id = UUID(applied_skill_ids[0])
     skill_version_id = UUID(applied_skill_version_ids[0])
+    logger.info(
+        "[%s] Generated skill resolved: skill_id=%s "
+        "skill_version_id=%s duration_seconds=%.2f.",
+        workflow_id,
+        skill_id,
+        skill_version_id,
+        perf_counter() - skill_resolution_started,
+    )
 
     # 2. Load the exact selected skill version.
-    selected_skill_instructions = await load_selected_skill_instructions(
-        session=session,
-        skill_ids=applied_skill_ids,
-        skill_version_ids=applied_skill_version_ids,
-    )
-
-    if len(selected_skill_instructions) != 1:
-        raise ValueError("Could not load the selected skill version.")
-
-    database_skill = await get_skill_by_id(session, skill_id)
-
-    if database_skill is None:
-        raise ValueError(f"Generated skill '{skill_id}' was not found.")
-
-    skill_version = await session.get(
-        SkillVersion,
-        skill_version_id,
-    )
-
-    if skill_version is None or skill_version.skill_id != skill_id:
-        raise ValueError(
-            "Selected skill version does not belong to the skill."
+    skill_load_started = perf_counter()
+    try:
+        selected_skill_instructions = (
+            await load_selected_skill_instructions(
+                session=session,
+                skill_ids=applied_skill_ids,
+                skill_version_ids=applied_skill_version_ids,
+            )
         )
 
-    # 3. Extract policy metadata from Source Requirements.
-    source_requirements = await load_requirements_from_selected_skills(
-        selected_skill_version_ids=[skill_version_id],
-        session_factory=AsyncSessionLocal,
+        if len(selected_skill_instructions) != 1:
+            raise ValueError("Could not load the selected skill version.")
+
+        database_skill = await get_skill_by_id(session, skill_id)
+
+        if database_skill is None:
+            raise ValueError(f"Generated skill '{skill_id}' was not found.")
+
+        skill_version = await session.get(
+            SkillVersion,
+            skill_version_id,
+        )
+
+        if skill_version is None or skill_version.skill_id != skill_id:
+            raise ValueError(
+                "Selected skill version does not belong to the skill."
+            )
+    except Exception:
+        logger.exception(
+            "[%s] Failed to load the exact selected skill version: "
+            "skill_id=%s skill_version_id=%s.",
+            workflow_id,
+            skill_id,
+            skill_version_id,
+        )
+        raise
+
+    logger.info(
+        "[%s] Exact skill version loaded: skill_id=%s "
+        "skill_version_id=%s duration_seconds=%.2f.",
+        workflow_id,
+        skill_id,
+        skill_version_id,
+        perf_counter() - skill_load_started,
     )
 
-    metadata = extract_policy_metadata_from_skill_requirements(
-        source_requirements
-    )
+    # 3. Extract policy metadata from Source Requirements.
+    source_load_started = perf_counter()
+    try:
+        source_requirements = await load_requirements_from_selected_skills(
+            selected_skill_version_ids=[skill_version_id],
+            session_factory=AsyncSessionLocal,
+        )
+
+        metadata = extract_policy_metadata_from_skill_requirements(
+            source_requirements
+        )
+    except Exception:
+        logger.exception(
+            "[%s] Failed to load policy Source Requirements or metadata: "
+            "skill_version_id=%s.",
+            workflow_id,
+            skill_version_id,
+        )
+        raise
 
     policy_title = metadata["policy_name"]
     policy_domain = metadata["domain"]
     purpose = metadata["purpose"]
-
-    # 4. Generate the policy using the exact skill version.
-    policy_output = await generate_policy_from_skill(
-        selected_skill_version_ids=[skill_version_id],
-        session_factory=AsyncSessionLocal,
-        custom_title=policy_title,
-        domain=policy_domain,
-        custom_description=purpose,
+    logger.info(
+        "[%s] Policy source loaded: requirement_count=%d "
+        "skill_version_id=%s duration_seconds=%.2f.",
+        workflow_id,
+        len(source_requirements),
+        skill_version_id,
+        perf_counter() - source_load_started,
     )
 
+    # 4. Generate the policy using the exact skill version.
+    generation_started = perf_counter()
+    try:
+        policy_output = await generate_policy_from_skill(
+            selected_skill_version_ids=[skill_version_id],
+            session_factory=AsyncSessionLocal,
+            custom_title=policy_title,
+            domain=policy_domain,
+            custom_description=purpose,
+        )
+    except Exception:
+        logger.exception(
+            "[%s] Policy generation agent failed: skill_version_id=%s.",
+            workflow_id,
+            skill_version_id,
+        )
+        raise
+
     if not policy_output:
+        logger.error(
+            "[%s] Policy generation agent returned no output: "
+            "skill_version_id=%s.",
+            workflow_id,
+            skill_version_id,
+        )
         raise ValueError(
             "The policy-generation agent returned no output."
         )
 
-    reject_placeholder_policy_content(policy_output)
+    logger.info(
+        "[%s] Policy draft generated: sections=%d unresolved_items=%d "
+        "duration_seconds=%.2f.",
+        workflow_id,
+        len(policy_output.sections),
+        len(policy_output.unresolved_items),
+        perf_counter() - generation_started,
+    )
+
+    try:
+        reject_placeholder_policy_content(policy_output)
+    except ValueError:
+        logger.warning(
+            "[%s] Generated policy contains empty or placeholder content.",
+            workflow_id,
+        )
+        raise
 
     final_description = (
         normalize_optional_text(policy_output.description) or purpose
     )
 
-    # 5. Run deterministic validation.
-    deterministic_report = validate_policy_draft(
-        sections=policy_output.sections,
-        requirements=source_requirements,
-        unresolved_items=policy_output.unresolved_items,
-    )
+    # 5. Run semantic policy validation only.
+    semantic_started = perf_counter()
+    try:
+        semantic_report = await validate_policy_semantics(
+            sections=policy_output.sections,
+            selected_skill_version_ids=[skill_version_id],
+            session_factory=AsyncSessionLocal,
+            operation="generation",
+            skill_instructions=selected_skill_instructions,
+            policy_metadata={
+                "title": policy_title,
+                "domain": policy_domain,
+            },
+        )
+    except Exception:
+        logger.exception(
+            "[%s] Semantic policy validation failed: skill_version_id=%s.",
+            workflow_id,
+            skill_version_id,
+        )
+        raise
 
-    # 6. Run semantic validation.
-    semantic_report = await validate_policy_semantics(
-        sections=policy_output.sections,
-        selected_skill_version_ids=[skill_version_id],
-        session_factory=AsyncSessionLocal,
-        operation="generation",
-        skill_instructions=selected_skill_instructions,
-        policy_metadata={
-            "title": policy_title,
-            "domain": policy_domain,
-        },
-    )
-
-    # 7. Merge validation reports.
-    validation_report = merge_policy_validation_reports(
-        deterministic_report=deterministic_report,
+    validation_report = _build_semantic_validation_report(
         semantic_report=semantic_report,
         total_requirements=len(source_requirements),
     )
 
-
-
-    logger.info(
-        "Initial policy validation completed: "
-        "skill_id=%s skill_version_id=%s status=%s",
-        skill_id,
-        skill_version_id,
-        validation_report.overall_status,
+    _log_validation_summary(
+        workflow_id,
+        "Semantic policy",
+        validation_report,
+        perf_counter() - semantic_started,
     )
 
     # 8.Reject failed validation before policy persistence.
@@ -684,10 +928,18 @@ async def generate_and_save_policy(
             if finding.status.upper() == "FAIL"
         )
 
+        failed_rules = [
+            finding.rule_name
+            for finding in validation_report.findings
+            if finding.status.upper() == "FAIL"
+        ]
         logger.error(
-            "Policy generation rejected: skill_id=%s details=%s",
+            "[%s] Policy generation rejected by validation: "
+            "skill_id=%s skill_version_id=%s failed_rules=%s.",
+            workflow_id,
             skill_id,
-            details,
+            skill_version_id,
+            failed_rules,
         )
 
         raise PolicyGenerationRejected(
@@ -715,24 +967,35 @@ async def generate_and_save_policy(
     ]
 
     # 12. Persist the policy and first version.
-    policy = await policy_repository.create_policy(
-        session=session,
-        title=policy_title,
-        domain=policy_domain,
-        sections=policy_output.sections,
-        content_text=text_content,
-        description=final_description,
-        applied_skill_ids=applied_skill_ids,
-        applied_skill_version_ids=applied_skill_version_ids,
-        validation_status=validation_status,
-        validation_report=validation_report,
-        source_requirement_version_id=source_version_id,
-        change_summary=(
-            "Initial policy draft generated from the selected skill."
-        ),
-    )
+    persistence_started = perf_counter()
+    try:
+        policy = await policy_repository.create_policy(
+            session=session,
+            title=policy_title,
+            domain=policy_domain,
+            sections=policy_output.sections,
+            content_text=text_content,
+            description=final_description,
+            applied_skill_ids=applied_skill_ids,
+            applied_skill_version_ids=applied_skill_version_ids,
+            validation_status=validation_status,
+            validation_report=validation_report,
+            source_requirement_version_id=source_version_id,
+            change_summary=(
+                "Initial policy draft generated from the selected skill."
+            ),
+        )
 
-    await session.commit()
+        await session.commit()
+    except Exception:
+        logger.exception(
+            "[%s] Failed to persist generated policy: "
+            "skill_id=%s skill_version_id=%s.",
+            workflow_id,
+            skill_id,
+            skill_version_id,
+        )
+        raise
 
     if not policy.versions:
         raise RuntimeError(
@@ -744,10 +1007,29 @@ async def generate_and_save_policy(
         key=lambda item: item.version,
     )
 
+    if validation_status == "needs_clarification":
+        logger.warning(
+            "[%s] Policy draft saved with unresolved clarification items: "
+            "policy_id=%s version=%d clarification_count=%d.",
+            workflow_id,
+            policy.id,
+            first_version.version,
+            len(validation_report.clarification_items),
+        )
+
+    logger.info(
+        "[%s] Policy generation completed: policy_id=%s version=%d "
+        "validation_status=%s duration_seconds=%.2f "
+        "persistence_seconds=%.2f.",
+        workflow_id,
+        policy.id,
+        first_version.version,
+        validation_status,
+        perf_counter() - workflow_started,
+        perf_counter() - persistence_started,
+    )
+
     return _build_policy_response(policy, first_version)
-
-
-
 
 
 
@@ -760,11 +1042,18 @@ async def modify_policy(
     """
     Apply user feedback and regenerate the complete policy.
 
-    The latest policy version provides the baseline skill version.
-    If skill modification is required, a new SkillVersion is created.
-    The original skill version and requirement database records remain
-    unchanged.
+    The latest PolicyVersion provides the original SkillVersion
+    reference.
+
+    If a previous modification created a newer draft SkillVersion
+    but failed before saving a PolicyVersion, reuse that draft.
+
+    Original SkillVersions and requirement database records
+    remain unchanged.
     """
+
+    workflow_id = uuid4().hex[:12]
+    workflow_started = perf_counter()
 
     # ---------------------------------------------------------
     # 1. Validate feedback
@@ -772,7 +1061,19 @@ async def modify_policy(
     feedback = normalize_optional_text(request.feedback)
 
     if not feedback:
+        logger.warning(
+            "[%s] Policy modification rejected: feedback is empty "
+            "for policy_id=%s.",
+            workflow_id,
+            policy_id,
+        )
         raise ValueError("Policy feedback cannot be empty.")
+
+    logger.info(
+        "[%s] Policy modification started: policy_id=%s.",
+        workflow_id,
+        policy_id,
+    )
 
     # ---------------------------------------------------------
     # 2. Load policy and latest version
@@ -783,11 +1084,23 @@ async def modify_policy(
     )
 
     if policy is None or not policy.versions:
+        logger.warning(
+            "[%s] Policy modification target not found: policy_id=%s.",
+            workflow_id,
+            policy_id,
+        )
         raise ValueError(f"Policy '{policy_id}' not found.")
 
     latest_version = max(
         policy.versions,
         key=lambda item: item.version,
+    )
+
+    logger.info(
+        "[%s] Baseline policy loaded: policy_id=%s version=%d.",
+        workflow_id,
+        policy_id,
+        latest_version.version,
     )
 
     # ---------------------------------------------------------
@@ -797,6 +1110,7 @@ async def modify_policy(
         skill_ids = json.loads(
             latest_version.applied_skill_ids_json or "[]"
         )
+
         skill_version_ids = json.loads(
             latest_version.applied_skill_version_ids_json or "[]"
         )
@@ -832,16 +1146,39 @@ async def modify_policy(
         )
 
     # ---------------------------------------------------------
-    # 4. Validate identifiers
+    # 4. Validate identifiers and resolve modification baseline
     # ---------------------------------------------------------
     try:
         skill_id = UUID(str(skill_ids[0]))
-        base_skill_version_id = UUID(str(skill_version_ids[0]))
+
+        policy_linked_skill_version_id = UUID(
+            str(skill_version_ids[0])
+        )
 
     except (ValueError, TypeError, AttributeError) as exc:
         raise ValueError(
             "The policy contains an invalid skill or skill-version ID."
         ) from exc
+
+    baseline_skill_version = await resolve_modification_skill_baseline(
+        session=session,
+        skill_id=skill_id,
+        policy_linked_skill_version_id=policy_linked_skill_version_id,
+        workflow_id=workflow_id,
+    )
+
+    base_skill_version_id = baseline_skill_version.id
+
+    logger.info(
+        "[%s] Modification baseline selected: "
+        "skill_id=%s policy_linked_version_id=%s "
+        "selected_baseline_version_id=%s version_number=%s.",
+        workflow_id,
+        skill_id,
+        policy_linked_skill_version_id,
+        base_skill_version_id,
+        baseline_skill_version.version,
+    )
 
     # ---------------------------------------------------------
     # 5. Load exact baseline skill version
@@ -853,6 +1190,14 @@ async def modify_policy(
     )
 
     if len(selected_skill_instructions) != 1:
+        logger.error(
+            "[%s] Could not load the baseline skill version: "
+            "policy_id=%s skill_id=%s skill_version_id=%s.",
+            workflow_id,
+            policy_id,
+            skill_id,
+            base_skill_version_id,
+        )
         raise ValueError(
             "Could not load the exact skill version used by the policy."
         )
@@ -881,11 +1226,24 @@ async def modify_policy(
     # ---------------------------------------------------------
     # 7. Analyze user feedback
     # ---------------------------------------------------------
-    feedback_analysis = await analyze_policy_feedback(
-        feedback=feedback,
-        existing_skill_instructions=existing_instructions,
-        existing_source_requirements=existing_source_requirements,
-    )
+    feedback_analysis_started = perf_counter()
+
+    try:
+        feedback_analysis = await analyze_policy_feedback(
+            feedback=feedback,
+            existing_skill_instructions=existing_instructions,
+            existing_source_requirements=existing_source_requirements,
+        )
+
+    except Exception:
+        logger.exception(
+            "[%s] Policy feedback analysis failed: policy_id=%s "
+            "baseline_version=%d.",
+            workflow_id,
+            policy_id,
+            baseline_skill_version.version,
+        )
+        raise
 
     change_scope = feedback_analysis.change_scope
 
@@ -903,6 +1261,15 @@ async def modify_policy(
 
     requires_skill_modification = (
         feedback_analysis.requires_skill_modification
+    )
+
+    logger.info(
+        "[%s] Policy feedback analyzed: skill_change_required=%s "
+        "change_scope=%s duration_seconds=%.2f.",
+        workflow_id,
+        requires_skill_modification,
+        change_scope,
+        perf_counter() - feedback_analysis_started,
     )
 
     if requires_skill_modification and change_scope == "none":
@@ -926,22 +1293,36 @@ async def modify_policy(
     if requires_skill_modification:
 
         # 8.1 Modify the existing skill content.
-        skill_modification = await modify_skill_content(
-            feedback=feedback,
-            existing_instructions=existing_instructions,
-            existing_source_requirements=existing_source_requirements,
-            change_scope=change_scope,
-            change_reason=feedback_analysis.reason,
-        )
+        skill_modification_started = perf_counter()
+
+        try:
+            skill_modification = await modify_skill_content(
+                feedback=feedback,
+                existing_instructions=existing_instructions,
+                existing_source_requirements=existing_source_requirements,
+                change_scope=change_scope,
+                change_reason=feedback_analysis.reason,
+            )
+
+        except Exception:
+            logger.exception(
+                "[%s] Skill modification agent failed: "
+                "skill_id=%s base_skill_version_id=%s scope=%s.",
+                workflow_id,
+                skill_id,
+                base_skill_version_id,
+                change_scope,
+            )
+            raise
 
         logger.info(
-            "SKILL MODIFICATION OUTPUT:\n"
-            "Instructions:\n%s\n"
-            "Source Requirements:\n%s\n"
-            "Change Summary:\n%s",
-            skill_modification.instructions,
-            skill_modification.source_requirements,
-            skill_modification.change_summary,
+            "[%s] Skill modification generated: skill_id=%s "
+            "base_skill_version_id=%s scope=%s duration_seconds=%.2f.",
+            workflow_id,
+            skill_id,
+            base_skill_version_id,
+            change_scope,
+            perf_counter() - skill_modification_started,
         )
 
         # 8.2 Resolve optional output according to scope.
@@ -1010,42 +1391,48 @@ async def modify_policy(
             revised_source_requirements=revised_source_requirements,
         )
 
-        logger.info(
-            "FINAL SKILL CONTENT BEFORE SAVE:\n%s",
-            revised_skill_content,
-        )
-
         # 8.6 Create a new skill version.
-        new_skill_version = await create_skill_version_from_content(
-            session=session,
-            skill_id=skill_id,
-            base_skill_version_id=base_skill_version_id,
-            content=revised_skill_content,
-        )
+        skill_persistence_started = perf_counter()
+
+        try:
+            new_skill_version = await create_skill_version_from_content(
+                session=session,
+                skill_id=skill_id,
+                base_skill_version_id=base_skill_version_id,
+                content=revised_skill_content,
+            )
+
+            # The policy generator reads through a separate DB session.
+            await session.commit()
+
+        except Exception:
+            logger.exception(
+                "[%s] Failed to create or commit revised skill version: "
+                "skill_id=%s base_skill_version_id=%s.",
+                workflow_id,
+                skill_id,
+                base_skill_version_id,
+            )
+            raise
 
         selected_skill_version_id = new_skill_version.id
         modification_summary = skill_modification.change_summary
 
-        # The policy generator reads through a separate DB session.
-        # Commit the new skill version before calling the generator.
-        await session.commit()
-
         logger.info(
-            "Created new skill version: skill_id=%s "
-            "base_version_id=%s new_version_id=%s scope=%s",
+            "[%s] Revised skill version committed: skill_id=%s "
+            "base_version_id=%s new_version_id=%s scope=%s "
+            "duration_seconds=%.2f.",
+            workflow_id,
             skill_id,
             base_skill_version_id,
             selected_skill_version_id,
             change_scope,
+            perf_counter() - skill_persistence_started,
         )
 
     # ---------------------------------------------------------
     # 9. Prepare exact selected skill references
     # ---------------------------------------------------------
-    # This block runs for BOTH skill-modification paths.
-    # If no skill modification is required, the baseline version
-    # is reused.
-
     selected_skill_version_ids = [
         selected_skill_version_id
     ]
@@ -1058,49 +1445,104 @@ async def modify_policy(
         str(selected_skill_version_id)
     ]
 
+    logger.info(
+        "[%s] Policy regeneration source selected: policy_id=%s "
+        "skill_id=%s skill_version_id=%s.",
+        workflow_id,
+        policy_id,
+        skill_id,
+        selected_skill_version_id,
+    )
+
     # ---------------------------------------------------------
     # 10. Regenerate the complete policy
     # ---------------------------------------------------------
-    policy_output: StructuredPolicyGenerationOutput = (
-        await generate_policy_from_skill(
-            selected_skill_version_ids=selected_skill_version_ids,
-            session_factory=AsyncSessionLocal,
-            custom_title=policy.title,
-            domain=policy.domain,
-            custom_description=policy.description,
-            additional_generation_guidance=(
-                feedback_analysis.policy_generation_guidance
-            ),
+    generation_started = perf_counter()
+
+    try:
+        policy_output: StructuredPolicyGenerationOutput = (
+            await generate_policy_from_skill(
+                selected_skill_version_ids=selected_skill_version_ids,
+                session_factory=AsyncSessionLocal,
+                custom_title=policy.title,
+                domain=policy.domain,
+                custom_description=policy.description,
+                additional_generation_guidance=(
+                    feedback_analysis.policy_generation_guidance
+                ),
+            )
         )
-    )
+
+    except Exception:
+        logger.exception(
+            "[%s] Policy regeneration failed: policy_id=%s "
+            "base_version=%d skill_version_id=%s.",
+            workflow_id,
+            policy_id,
+            latest_version.version,
+            selected_skill_version_id,
+        )
+        raise
 
     if not policy_output:
+        logger.error(
+            "[%s] Policy generator returned no output: policy_id=%s.",
+            workflow_id,
+            policy_id,
+        )
         raise ValueError(
             "The policy-generation agent returned no output."
         )
 
-    reject_placeholder_policy_content(policy_output)
+    logger.info(
+        "[%s] Complete policy regenerated: policy_id=%s "
+        "sections=%d unresolved_items=%d duration_seconds=%.2f.",
+        workflow_id,
+        policy_id,
+        len(policy_output.sections),
+        len(policy_output.unresolved_items),
+        perf_counter() - generation_started,
+    )
+
+    try:
+        reject_placeholder_policy_content(policy_output)
+
+    except ValueError:
+        logger.warning(
+            "[%s] Regenerated policy contains empty or placeholder content: "
+            "policy_id=%s.",
+            workflow_id,
+            policy_id,
+        )
+        raise
 
     # ---------------------------------------------------------
     # 11. Load requirements from the exact selected skill version
     # ---------------------------------------------------------
-    skill_requirements = await load_requirements_from_selected_skills(
-        selected_skill_version_ids=selected_skill_version_ids,
-        session_factory=AsyncSessionLocal,
-    )
+    requirement_load_started = perf_counter()
+
+    try:
+        skill_requirements = await load_requirements_from_selected_skills(
+            selected_skill_version_ids=selected_skill_version_ids,
+            session_factory=AsyncSessionLocal,
+        )
+
+    except Exception:
+        logger.exception(
+            "[%s] Failed to load Source Requirements for validation: "
+            "skill_version_id=%s.",
+            workflow_id,
+            selected_skill_version_id,
+        )
+        raise
 
     logger.info(
-        "MODIFICATION DEBUG - Selected SkillVersion: %s",
+        "[%s] Source Requirements loaded for validation: count=%d "
+        "skill_version_id=%s duration_seconds=%.2f.",
+        workflow_id,
+        len(skill_requirements),
         selected_skill_version_id,
-    )
-
-    logger.info(
-        "MODIFICATION DEBUG - Extracted Source Requirements:\n%s",
-        json.dumps(
-            skill_requirements,
-            indent=2,
-            ensure_ascii=False,
-        ),
+        perf_counter() - requirement_load_started,
     )
 
     if not skill_requirements:
@@ -1124,51 +1566,56 @@ async def modify_policy(
         )
 
     # ---------------------------------------------------------
-    # 13. Deterministic policy validation
+    # 13. Semantic policy validation only
     # ---------------------------------------------------------
-    deterministic_report = validate_policy_draft(
-        sections=policy_output.sections,
-        requirements=skill_requirements,
-        unresolved_items=policy_output.unresolved_items,
-    )
+    semantic_started = perf_counter()
 
-    # ---------------------------------------------------------
-    # 14. Semantic policy validation
-    # ---------------------------------------------------------
-    # The complete policy has been regenerated from the exact
-    # selected skill version. Validate it as a generation operation.
+    try:
+        semantic_report = await validate_policy_semantics(
+            sections=policy_output.sections,
+            selected_skill_version_ids=selected_skill_version_ids,
+            session_factory=AsyncSessionLocal,
+            operation="generation",
+            skill_instructions=selected_skill_instructions,
+            policy_metadata={
+                "title": policy.title,
+                "domain": policy.domain,
+            },
+        )
 
-    semantic_report = await validate_policy_semantics(
-        sections=policy_output.sections,
-        selected_skill_version_ids=selected_skill_version_ids,
-        session_factory=AsyncSessionLocal,
-        operation="generation",
-        skill_instructions=selected_skill_instructions,
-        policy_metadata={
-            "title": policy.title,
-            "domain": policy.domain,
-        },
-    )
+    except Exception:
+        logger.exception(
+            "[%s] Semantic policy validation failed: policy_id=%s "
+            "skill_version_id=%s.",
+            workflow_id,
+            policy_id,
+            selected_skill_version_id,
+        )
+        raise
 
-    # ---------------------------------------------------------
-    # 15. Merge validation reports
-    # ---------------------------------------------------------
-    validation_report = merge_policy_validation_reports(
-        deterministic_report=deterministic_report,
+    validation_report = _build_semantic_validation_report(
         semantic_report=semantic_report,
         total_requirements=len(skill_requirements),
     )
 
+    _log_validation_summary(
+        workflow_id,
+        "Semantic policy modification",
+        validation_report,
+        perf_counter() - semantic_started,
+    )
+
     logger.info(
-        "Policy modification validation completed: "
-        "policy_id=%s next_version=%s status=%s",
+        "[%s] Policy modification validation finished: "
+        "policy_id=%s base_version=%d candidate_version=%d.",
+        workflow_id,
         policy.id,
+        latest_version.version,
         latest_version.version + 1,
-        validation_report.overall_status,
     )
 
     # ---------------------------------------------------------
-    # 16. Reject failed validation
+    # 14. Reject failed validation
     # ---------------------------------------------------------
     if validation_report.overall_status.upper() == "FAIL":
 
@@ -1178,6 +1625,21 @@ async def modify_policy(
             if finding.status.upper() == "FAIL"
         )
 
+        failed_rules = [
+            finding.rule_name
+            for finding in validation_report.findings
+            if finding.status.upper() == "FAIL"
+        ]
+
+        logger.error(
+            "[%s] Policy modification rejected by validation: "
+            "policy_id=%s base_version=%d failed_rules=%s.",
+            workflow_id,
+            policy_id,
+            latest_version.version,
+            failed_rules,
+        )
+
         raise PolicyModificationRejected(
             "Policy regeneration failed validation. "
             "No new policy version was created:\n" + details,
@@ -1185,7 +1647,7 @@ async def modify_policy(
         )
 
     # ---------------------------------------------------------
-    # 17. Prepare new policy version
+    # 15. Prepare new policy version
     # ---------------------------------------------------------
     next_version = latest_version.version + 1
 
@@ -1218,40 +1680,67 @@ async def modify_policy(
     ]
 
     # ---------------------------------------------------------
-    # 18. Save new policy version with exact lineage
+    # 16. Save new policy version with exact lineage
     # ---------------------------------------------------------
-    new_policy_version = await policy_repository.create_policy_version(
-        session=session,
-        policy_id=policy.id,
-        sections=policy_output.sections,
-        content_text=text_content,
-        change_summary=change_summary,
-        validation_status=validation_status,
-        validation_report=validation_report,
+    persistence_started = perf_counter()
 
-        # Preserve the original source requirement lineage.
-        # Feedback-derived Source Requirements are stored in
-        # the newly created SkillVersion.
-        source_requirement_version_id=(
-            latest_version.source_requirement_version_id
-        ),
+    try:
+        new_policy_version = await policy_repository.create_policy_version(
+            session=session,
+            policy_id=policy.id,
+            sections=policy_output.sections,
+            content_text=text_content,
+            change_summary=change_summary,
+            validation_status=validation_status,
+            validation_report=validation_report,
 
-        # Store the exact skill version used for regeneration.
-        applied_skill_ids=selected_skill_ids,
-        applied_skill_version_ids=selected_skill_version_id_strings,
-    )
+            # Preserve the original source requirement lineage.
+            # Feedback-derived Source Requirements are stored in
+            # the newly created SkillVersion.
+            source_requirement_version_id=(
+                latest_version.source_requirement_version_id
+            ),
 
-    # ---------------------------------------------------------
-    # 19. Commit and return
-    # ---------------------------------------------------------
-    await session.commit()
+            # Store the exact skill version used for regeneration.
+            applied_skill_ids=selected_skill_ids,
+            applied_skill_version_ids=selected_skill_version_id_strings,
+        )
+
+        await session.commit()
+
+    except Exception:
+        logger.exception(
+            "[%s] Failed to persist regenerated policy: "
+            "policy_id=%s candidate_version=%d "
+            "skill_version_id=%s.",
+            workflow_id,
+            policy_id,
+            next_version,
+            selected_skill_version_id,
+        )
+        raise
+
+    if validation_status == "needs_clarification":
+        logger.warning(
+            "[%s] Policy version saved with unresolved clarification items: "
+            "policy_id=%s version=%d clarification_count=%d.",
+            workflow_id,
+            policy.id,
+            next_version,
+            len(validation_report.clarification_items),
+        )
 
     logger.info(
-        "Policy version created successfully: "
-        "policy_id=%s version=%s skill_version_id=%s",
+        "[%s] Policy modification completed: policy_id=%s "
+        "version=%d validation_status=%s skill_version_id=%s "
+        "duration_seconds=%.2f persistence_seconds=%.2f.",
+        workflow_id,
         policy.id,
         next_version,
+        validation_status,
         selected_skill_version_id,
+        perf_counter() - workflow_started,
+        perf_counter() - persistence_started,
     )
 
     return _build_policy_response(
