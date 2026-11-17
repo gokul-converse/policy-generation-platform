@@ -15,19 +15,7 @@ NUMERIC_PATTERN = re.compile(
     -?
     \d+(?:,\d{3})*(?:\.\d+)?
     \s*
-    (?:
-        % |
-        percent |
-        days? |
-        hours? |
-        weeks? |
-        months? |
-        years? |
-        USD |
-        EUR |
-        GBP |
-        dollars?
-    )?
+    (?:%|percent|days?|hours?|weeks?|months?|years?|USD|EUR|GBP|dollars?)?
     (?!\w)
     """,
     re.IGNORECASE | re.VERBOSE,
@@ -38,16 +26,18 @@ APPROVED_VERSION_STATUSES = {"valid", "validated", "confirmed"}
 
 
 def extract_numbers_and_units(text_content: str) -> list[str]:
-    """Extract unique numeric values, currencies, percentages, and units."""
-    matches = NUMERIC_PATTERN.findall(text_content)
-    cleaned = [match.strip() for match in matches if match.strip()]
-    return list(dict.fromkeys(cleaned))
+    """Extract numeric values without changing their original source JSON."""
+    matches = NUMERIC_PATTERN.findall(text_content or "")
+    return list(dict.fromkeys(
+        value.strip() for value in matches if value.strip()
+    ))
 
 
 def _load_snapshot_items(
     snapshot_json: Any,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Parse the confirmed snapshot into requirement objects."""
+    """Parse the confirmed requirement snapshot."""
+
     try:
         payload = (
             json.loads(snapshot_json)
@@ -101,7 +91,8 @@ def _map_snapshot_to_requirement_ids(
     requirement_rows: list[Any],
     session_id: str,
 ) -> dict[str, dict[str, Any]]:
-    """Map snapshot requirement objects to database requirement IDs."""
+    """Map snapshot JSON objects to their database requirement IDs."""
+
     raw_items, shared_fields = _load_snapshot_items(snapshot_json)
 
     known_ids = {
@@ -122,21 +113,18 @@ def _map_snapshot_to_requirement_ids(
         item = dict(shared_fields)
         item.update(raw_item)
 
-        raw_requirement_id = item.get("requirement_id")
+        raw_id = item.get("requirement_id")
 
-        if raw_requirement_id is None or not str(
-            raw_requirement_id
-        ).strip():
+        if raw_id is None or not str(raw_id).strip():
             if len(known_ids) != 1 or len(raw_items) != 1:
                 raise ValueError(
                     "The confirmed snapshot does not identify each requirement. "
                     "A requirement_id is required when the session contains "
                     "multiple requirements."
                 )
-
             requirement_id = next(iter(known_ids))
         else:
-            requirement_id = str(raw_requirement_id).strip()
+            requirement_id = str(raw_id).strip()
 
         if requirement_id not in known_ids:
             raise ValueError(
@@ -146,8 +134,8 @@ def _map_snapshot_to_requirement_ids(
 
         if requirement_id in mapped:
             raise ValueError(
-                f"The confirmed snapshot contains duplicate requirement_id "
-                f"{requirement_id!r}."
+                f"Duplicate requirement_id {requirement_id!r} "
+                "in confirmed snapshot."
             )
 
         nested_json = item.get("requirement_json")
@@ -155,10 +143,8 @@ def _map_snapshot_to_requirement_ids(
         if nested_json is not None:
             if not isinstance(nested_json, dict):
                 raise ValueError(
-                    f"The requirement_json for {requirement_id!r} "
-                    "must be an object."
+                    f"requirement_json for {requirement_id!r} must be an object."
                 )
-
             requirement_data = dict(nested_json)
         else:
             requirement_data = item
@@ -181,7 +167,8 @@ async def _load_confirmed_snapshot(
     session_id: str,
     source_requirement_version_id: str | None = None,
 ) -> tuple[str, Any]:
-    """Load the requested confirmed snapshot or the latest confirmed snapshot."""
+    """Load an exact confirmed version or the latest confirmed version."""
+
     version_id = (
         source_requirement_version_id.strip()
         if isinstance(source_requirement_version_id, str)
@@ -194,8 +181,7 @@ async def _load_confirmed_snapshot(
             """
             SELECT
                 requirement_version_id,
-                requirements_json,
-                validation_status
+                requirements_json
             FROM requirement_versions
             WHERE requirement_version_id = :version_id
               AND session_id = :session_id
@@ -203,7 +189,6 @@ async def _load_confirmed_snapshot(
                   IN ('valid', 'validated', 'confirmed')
             """
         )
-
         parameters = {
             "version_id": version_id,
             "session_id": session_id,
@@ -214,8 +199,7 @@ async def _load_confirmed_snapshot(
             """
             SELECT
                 requirement_version_id,
-                requirements_json,
-                validation_status
+                requirements_json
             FROM requirement_versions
             WHERE session_id = :session_id
               AND LOWER(validation_status)
@@ -224,13 +208,12 @@ async def _load_confirmed_snapshot(
             LIMIT 1
             """
         )
-
         parameters = {"session_id": session_id}
 
     result = await session.execute(query, parameters)
-    version_row = result.mappings().first()
+    row = result.mappings().first()
 
-    if version_row is None:
+    if row is None:
         if version_id:
             raise ValueError(
                 f"Requirement version {version_id!r} was not found as a "
@@ -239,27 +222,23 @@ async def _load_confirmed_snapshot(
 
         raise ValueError(
             f"No confirmed requirement snapshot exists for session "
-            f"{session_id!r}. Generation requires a confirmed "
-            "requirement_versions record."
+            f"{session_id!r}."
         )
 
-    requirements_json = version_row["requirements_json"]
+    requirements_json = row["requirements_json"]
 
     if not requirements_json:
         raise ValueError(
             f"Confirmed requirement version "
-            f"{version_row['requirement_version_id']!r} "
-            "has no requirements_json."
+            f"{row['requirement_version_id']!r} has no requirements_json."
         )
 
-    return (
-        str(version_row["requirement_version_id"]),
-        requirements_json,
-    )
+    return str(row["requirement_version_id"]), requirements_json
 
 
-def _get_domain(requirement_json: dict[str, Any]) -> str | None:
-    """Read domain only from the confirmed requirement JSON."""
+def _get_domain(
+    requirement_json: dict[str, Any],
+) -> str | None:
     domain = requirement_json.get("domain")
 
     if isinstance(domain, str) and domain.strip():
@@ -268,8 +247,9 @@ def _get_domain(requirement_json: dict[str, Any]) -> str | None:
     return None
 
 
-def _get_purpose(requirement_json: dict[str, Any]) -> str | None:
-    """Read purpose only from the confirmed requirement JSON."""
+def _get_purpose(
+    requirement_json: dict[str, Any],
+) -> str | None:
     purpose = requirement_json.get("purpose")
 
     if isinstance(purpose, str) and purpose.strip():
@@ -288,6 +268,7 @@ def _build_requirement_input(
     source_version_id: str,
 ) -> ValidatedRequirementInput:
     """Build agent input using the complete confirmed JSON."""
+
     requirement_text = json.dumps(
         requirement_json,
         ensure_ascii=False,
@@ -314,38 +295,41 @@ def _build_requirement_input(
 def adapt_requirements(
     raw_input: Any,
 ) -> list[ValidatedRequirementInput]:
-    """Adapt supplied requirement objects while preserving JSON metadata."""
+    """Adapt requirement objects while preserving their original JSON."""
+
     if isinstance(raw_input, list):
         items = raw_input
-
     elif isinstance(raw_input, dict):
         items = raw_input.get("requirements", [])
-
     else:
         raise ValueError(
-            f"Unsupported requirements input type: "
-            f"{type(raw_input).__name__}"
+            f"Unsupported requirements input type: {type(raw_input).__name__}"
         )
 
     if not isinstance(items, list) or not items:
         raise ValueError(
-            "Input must contain a non-empty 'requirements' list."
+            "Input must contain a non-empty requirements list."
         )
 
     adapted = []
     seen_ids = set()
 
     for item in items:
+
         if isinstance(item, ValidatedRequirementInput):
             model = item
 
         elif isinstance(item, dict):
+
             requirement_id = item.get("requirement_id")
             requirement_text = (
                 item.get("text") or item.get("description")
             )
 
-            if not isinstance(requirement_id, str) or not requirement_id.strip():
+            if (
+                not isinstance(requirement_id, str)
+                or not requirement_id.strip()
+            ):
                 raise ValueError(
                     "Every requirement must provide a valid requirement_id."
                 )
@@ -372,8 +356,7 @@ def adapt_requirements(
 
             if not isinstance(metadata, dict):
                 raise ValueError(
-                    f"Requirement {requirement_id!r} metadata "
-                    "must be an object."
+                    f"Requirement {requirement_id!r} metadata must be an object."
                 )
 
             metadata = dict(metadata)
@@ -398,7 +381,6 @@ def adapt_requirements(
                         f"Requirement JSON for {requirement_id!r} "
                         "must be an object."
                     )
-
                 metadata["requirement_json"] = requirement_json
 
             numeric_values = item.get("numeric_values")
@@ -455,15 +437,17 @@ async def load_requirements_from_session(
     str | None,
     str | None,
 ]:
-    """Load all requirements from the latest confirmed snapshot.
+    """
+    Load all requirements from the latest confirmed snapshot.
 
     Returns:
         adapted requirements,
-        domain from confirmed requirement JSON,
-        purpose from confirmed requirement JSON.
+        domain,
+        purpose.
 
-    Neither original_description nor requirements.description is used.
+    The source is requirement_versions.requirements_json.
     """
+
     session_id = session_id.strip() if session_id else ""
 
     if not session_id:
@@ -516,6 +500,7 @@ async def load_requirements_from_session(
         )
 
     for row in requirement_rows:
+
         requirement_id = str(
             row["requirement_id"] or ""
         ).strip()
@@ -550,6 +535,7 @@ async def load_requirements_from_session(
     purposes = []
 
     for row in requirement_rows:
+
         requirement_id = str(row["requirement_id"]).strip()
         requirement_json = snapshot_by_id[requirement_id]
 
@@ -577,7 +563,7 @@ async def load_requirements_from_session(
 
     if len(unique_domains) > 1:
         raise ValueError(
-            "Conflicting domain values found in the confirmed requirements: "
+            "Conflicting domain values found in confirmed requirements: "
             + ", ".join(unique_domains)
         )
 
@@ -604,14 +590,15 @@ async def load_single_requirement(
     str | None,
     str | None,
 ]:
-    """Load one requirement exclusively from its confirmed version snapshot.
+    """
+    Load one approved requirement from its confirmed snapshot.
 
-    The requirements table verifies identity, session association, topic,
+    The database verifies requirement identity, session association,
     and approval status.
 
-    The third return value is the purpose from confirmed requirement JSON.
-    It is never the session's original_description.
+    The requirement content comes exclusively from requirements_json.
     """
+
     requirement_id = requirement_id.strip() if requirement_id else ""
     session_id = session_id.strip() if session_id else ""
 
@@ -656,8 +643,7 @@ async def load_single_requirement(
 
     if session_status != "confirmed":
         raise ValueError(
-            f"Session {session_id!r} is not confirmed. "
-            f"Current status: {selected_row['session_status']!r}."
+            f"Session {session_id!r} is not confirmed."
         )
 
     requirement_status = str(
@@ -670,7 +656,6 @@ async def load_single_requirement(
             f"Current status: {selected_row['requirement_status']!r}."
         )
 
-    # Read all requirement IDs to avoid guessing when a snapshot has no IDs.
     all_rows_result = await session.execute(
         text(
             """

@@ -411,14 +411,17 @@ async def validate_policy_semantics(
     extracted from the exact selected skill versions.
 
     Evaluates:
-    - Complete source requirements
-    - Individual requirement clauses
-    - Policy metadata
-    - Policy section content
+    - Complete source requirements and their intended meaning
+    - Individual requirement clauses in their business context
+    - Policy metadata and domain consistency
     - Requirement traceability
-    - Unsupported additions
-    - Semantic conflicts
-    - Modification integrity
+    - Numeric values, units, thresholds, and timelines semantically
+    - Unsupported additions and semantic conflicts
+    - Policy organization, hierarchy, readability, and consistency
+    - Modification integrity when modification context is supplied
+
+    This is the single policy-quality validation stage. It does not
+    run deterministic policy rules or exact numeric-token comparisons.
 
     This function evaluates policy content and never modifies it.
     """
@@ -692,8 +695,34 @@ async def validate_policy_semantics(
         "or requirement ID mappings.\n\n"
 
         "Check complete clause coverage, scope, eligibility, "
-        "numeric preservation, unsupported additions, and "
-        "semantic conflicts.\n\n"
+        "numeric values and units in their business context, "
+        "unsupported additions, and semantic conflicts.\n\n"
+
+        "NUMERIC AND CONDITIONAL MEANING:\n"
+        "Compare each material source value with the policy meaning. "
+        "Check whether thresholds, quantities, percentages, units, "
+        "durations, dates, frequencies, and comparison operators "
+        "are represented correctly. Do not use exact string matching "
+        "or reject harmless formatting differences. For example, "
+        "equivalent representations may be acceptable when the value, "
+        "unit, and business meaning are unchanged. A changed threshold, "
+        "unit, condition, or timeline is a semantic issue.\n\n"
+
+        "POLICY STRUCTURE AND PRESENTATION:\n"
+        "Evaluate the complete policy as a professional document. "
+        "Check whether the title and sections are meaningful; the "
+        "purpose and scope are clear; related rules are grouped; "
+        "responsibilities, eligibility, procedures, exceptions, and "
+        "governance information are placed logically when supported "
+        "by the source; and the reading order is natural. Check that "
+        "main sections and subsections have a clear hierarchy, titles "
+        "match their content, numbering is understandable, and there "
+        "are no unnecessary duplicate or contradictory sections. "
+        "Do not require a fixed template or particular section order. "
+        "Do not fail a policy for harmless stylistic preferences. "
+        "Report material structure problems using rule_name "
+        "'policy_structure', with affected section IDs and a clear "
+        "explanation. Do not rewrite the policy.\n\n"
 
         "POLICY METADATA VALIDATION:\n"
         "The policy_metadata object contains structured policy-level "

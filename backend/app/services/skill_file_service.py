@@ -1,4 +1,3 @@
-
 """Utilities for building and modifying SKILL.md content."""
 
 import re
@@ -205,6 +204,7 @@ def validate_source_requirements(source_requirements: str) -> str:
     return source_requirements
 
 
+
 def rebuild_skill_markdown(
     existing_content: str,
     revised_instructions: str | None = None,
@@ -231,7 +231,6 @@ def rebuild_skill_markdown(
         existing_source_requirements,
     ) = split_skill_markdown(existing_content)
 
-    # Use revised instructions when available.
     instructions = (
         revised_instructions.strip()
         if revised_instructions is not None
@@ -246,18 +245,28 @@ def rebuild_skill_markdown(
             "Instructions must not contain a Source Requirements section."
         )
 
-    # Use revised Source Requirements when available.
     source_requirements = (
         revised_source_requirements
         if revised_source_requirements is not None
         else existing_source_requirements
     )
 
+    source_requirements = source_requirements.strip()
+    lines = source_requirements.splitlines()
+
+    # Add the required heading if the modification agent omitted it.
+    if not lines or lines[0].strip() != SOURCE_REQUIREMENTS_HEADING:
+        source_requirements = (
+            f"{SOURCE_REQUIREMENTS_HEADING}\n\n"
+            f"{source_requirements}"
+        )
+
+    # Validate the complete Source Requirements section.
     source_requirements = validate_source_requirements(
         source_requirements
     )
 
-    # Preserve original YAML metadata without updating requirement_ids.
+    # Preserve the original YAML metadata.
     return (
         f"---\n"
         f"{original_frontmatter}\n"

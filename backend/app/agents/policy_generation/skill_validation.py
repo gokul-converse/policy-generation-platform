@@ -190,10 +190,11 @@ def _build_validation_prompt(
     generated_skill_set: GeneratedSkillSet,
 ) -> str:
     """
-    Build the input supplied to the Skill Validation Agent.
+    Build the semantic validation prompt.
 
-    Validated requirements are authoritative.
-    Generated skills are the content being evaluated.
+    The validator checks whether generated skill instructions
+    preserve authoritative business requirements without adding
+    unsupported business or technical constraints.
     """
 
     requirements_json = json.dumps(
@@ -211,8 +212,11 @@ def _build_validation_prompt(
     )
 
     return f"""
-Validate the generated skills against the authoritative validated
-requirements.
+You are an independent semantic validator for generated enterprise
+Agent Skills.
+
+Your responsibility is to verify that generated skill instructions
+faithfully represent the authoritative validated requirements.
 
 AUTHORITATIVE VALIDATED REQUIREMENTS:
 {requirements_json}
@@ -220,19 +224,159 @@ AUTHORITATIVE VALIDATED REQUIREMENTS:
 GENERATED SKILLS:
 {skills_json}
 
-VALIDATION RULES:
+============================================================
+VALIDATION PRINCIPLES
+============================================================
 
-1. Treat the validated requirements as the only source of truth.
-2. Verify that every requirement has exactly one corresponding skill.
-3. Verify that each skill maps to the correct requirement ID.
-4. Check that the meaning of each requirement is preserved.
-5. Check all numeric values, dates, durations, units, conditions,
-   responsibilities, obligations, exceptions, and approval rules.
-6. Identify unsupported instructions or invented business rules.
-7. Identify missing requirement details or altered meaning.
-8. Identify conflicts or unintended overlaps between skills.
-9. Do not assume missing business information.
-10. Do not rewrite or correct the generated skills.
+1. SOURCE OF TRUTH
+
+- Treat the validated requirements as the only source of truth.
+- Do not use external assumptions or general business practices
+  to justify generated instructions.
+- Evaluate each skill against its corresponding requirement ID.
+
+2. REQUIREMENT PRESERVATION
+
+Check whether the generated skill preserves:
+
+- Business meaning and intent.
+- Policy scope and eligibility.
+- Numeric values and thresholds.
+- Dates, durations, and units.
+- Conditions and exceptions.
+- Roles and responsibilities.
+- Approval responsibilities and sequences.
+- Mandatory and optional obligations.
+- Restrictions and exclusions.
+
+3. UNSUPPORTED BUSINESS RULES
+
+Return FAIL when a skill introduces a new business obligation,
+restriction, approval, eligibility condition, or responsibility
+that is not supported by the authoritative requirements.
+
+Examples:
+
+- Adding an approval level that was not specified.
+- Changing who is responsible for an approval.
+- Introducing an additional eligibility condition.
+- Making a conditional requirement mandatory in every situation.
+- Introducing a new restriction or exception.
+
+4. UNSUPPORTED TECHNICAL IMPLEMENTATION DETAILS
+
+Return FAIL when a skill converts a business requirement into
+an unspecified technical implementation constraint.
+
+Examples:
+
+Authoritative requirement:
+"Contract employees and external consultants are excluded unless
+HR approves."
+
+Acceptable:
+"Contract employees and external consultants are outside the
+policy scope unless HR approves their inclusion."
+
+Unsupported:
+"Contractor status must be included in the HRMS submission payload."
+
+Unsupported:
+"Implement a contractor verification API."
+
+Unsupported:
+"Create a separate contractor approval workflow."
+
+The authoritative requirement defines a policy scope and an
+HR approval exception. It does not define technical payload
+fields, APIs, verification mechanisms, or additional workflows.
+
+Other examples of unsupported implementation details include:
+
+- Invented database fields.
+- Invented API request or response properties.
+- Invented UI form fields.
+- Unspecified backend validation mechanisms.
+- Unspecified system integrations.
+- Unspecified automated enforcement mechanisms.
+- Additional technical workflows.
+
+5. ACCEPTABLE EXPLANATION AND PARAPHRASING
+
+Do not return FAIL merely because the skill:
+
+- Rephrases a requirement without changing its meaning.
+- Organizes related requirements into a logical sequence.
+- Explains an explicitly assigned responsibility.
+- Provides a clearer description of an existing business rule.
+- Uses different wording while preserving the same obligation.
+- Describes an existing condition without introducing a new condition.
+
+An explanation is acceptable only when it does not create
+a new obligation, restriction, responsibility, or technical constraint.
+
+6. NUMERIC AND CONDITIONAL PRESERVATION
+
+Pay particular attention to:
+
+- Numbers and thresholds.
+- Working days versus calendar days.
+- Units and durations.
+- Greater-than and less-than conditions.
+- Exceptions and conditional approvals.
+- Sequence of approvals.
+- Eligibility requirements.
+
+Do not accept a skill that changes the meaning of a threshold
+or removes a condition.
+
+7. REQUIREMENT MAPPING
+
+Verify that:
+
+- Every requirement has exactly one corresponding skill.
+- Every skill references the correct requirement ID.
+- No requirement is omitted.
+- No unknown requirement ID is introduced.
+- No two skills represent the same requirement ID.
+
+8. MISSING OR AMBIGUOUS REQUIREMENTS
+
+Use NEEDS_CLARIFICATION only when the authoritative requirement
+itself lacks information necessary to determine the intended
+business rule.
+
+Do not request clarification merely because the requirement
+does not specify a technical implementation.
+
+============================================================
+VALIDATION DECISION
+============================================================
+
+PASS:
+All generated instructions preserve the authoritative requirements.
+No unsupported business rules or technical constraints are introduced.
+
+FAIL:
+At least one generated instruction introduces an unsupported rule,
+changes the requirement meaning, omits a required condition, or
+introduces an unspecified technical implementation constraint.
+
+NEEDS_CLARIFICATION:
+The authoritative requirement itself is ambiguous or incomplete
+and its intended business meaning cannot be determined.
+
+For every finding:
+
+- Reference the correct requirement ID.
+- Identify the exact problematic generated instruction.
+- Explain why it is unsupported or inaccurate.
+- Identify the relevant authoritative requirement.
+- Provide a specific correction recommendation.
+
+Do not invent requirement IDs.
+Do not rewrite the generated skills.
+Do not reject harmless paraphrasing or explanations.
 
 Return only the structured SkillValidationResult.
 """
